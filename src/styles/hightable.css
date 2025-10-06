@@ -1,0 +1,32 @@
+/* Theme for hightable */
+.hightable {
+  --hy-color-1: var(--black);
+  --hy-color-2: var(--gray-12);
+  --hy-color-3: var(--gray-11);
+  --hy-color-5: var(--gray-10);
+  --hy-color-7: var(--gray-9);
+  --hy-color-8: var(--gray-7);
+  --hy-color-9: var(--gray-2);
+  --hy-color-10: var(--gray-1);
+
+  --hy-accent-1: var(--gray-12);
+  --hy-accent-2: var(--gray-11);
+  --hy-accent-3: var(--gray-8);
+  --hy-accent-4: var(--gray-4);
+  --hy-accent-5: var(--gray-3);
+  
+  --hy-highlight-1: var(--gray-3);
+  --hy-highlight-2: var(--gray-2);
+  
+  tbody {
+    [role="rowheader"] {
+      text-align: right;
+      padding-right: 8px;
+      font-size: 0.625rem; /* column width computation is not optimal in hightable, reducing the font size to avoid cutting the numbers */
+      font-family: var(--code-font-family);
+    }
+    [role="cell"] {
+      font-family: var(--code-font-family);
+    }
+  }
+}
