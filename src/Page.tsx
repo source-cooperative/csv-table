@@ -1,12 +1,14 @@
-import HighTable, { type DataFrame } from "hightable";
+import HighTable from "hightable";
 import { type ReactNode } from "react";
+import Loading from "./Loading.js";
+import type { CSVDataFrame } from "./csv.js";
 
 export interface PageProps {
-  df: DataFrame;
-  name: string;
+  df?: CSVDataFrame;
+  name?: string;
   byteLength?: number;
   setError: (e: unknown) => void;
-  iframe?: boolean;
+  iframe: boolean;
 }
 
 /**
@@ -21,7 +23,6 @@ export default function Page({
   setError,
   iframe = false,
 }: PageProps): ReactNode {
-  console.log(df);
   return (
     <>
       {iframe ? "" : <div className="top-header">{name}</div>}
@@ -31,14 +32,18 @@ export default function Page({
             {formatFileSize(byteLength)}
           </span>
         )}
-        <span>{df.numRows.toLocaleString()} rows</span>
+        {df ? <span>{df.numRows.toLocaleString()} row{df.numRows > 1 ? 's': ''}{df.metadata?.isPartial ? ' (estimated)': ''}</span> : null}
       </div>
-      <HighTable
-        cacheKey={name}
-        data={df}
-        onError={setError}
-        className="hightable"
-      />
+      {!df ? (
+        <Loading />
+      ) : (
+        <HighTable
+          cacheKey={name}
+          data={df}
+          onError={setError}
+          className="hightable"
+        />
+      )}
     </>
   );
 }
