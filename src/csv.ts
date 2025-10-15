@@ -23,6 +23,7 @@ export type CSVDataFrame = DataFrame<Metadata>;
 
 const defaultChunkSize = 50 * 1024; // 50 KB, same as Papaparse default
 const defaultMaxCachedBytes = 20 * 1024 * 1024; // 20 MB
+const paddingRows = 10; // fetch a bit before and after the requested range, to avoid cutting rows
 
 interface Params {
   url: string;
@@ -365,6 +366,7 @@ export async function csvDataFrame({
       // TODO(SL): Update the average size of a row?
       // For now, we keep it constant, to provide stability - otherwise empty rows appear after the update
       // cache.averageRowBytes = getAverageRowBytes(cache);
+      // eventTarget.dispatchEvent(new CustomEvent("resolve")); // to refresh the table
     });
 
     // TODO(SL): evict old rows (or only cell contents?) if needed
@@ -468,8 +470,13 @@ function fetchRange({
 }): Promise<void> {
   checkSignal(signal);
 
-  let cursor = start;
+  const firstChunkOffset = Math.max(
+    cache.serial.end, // don't fetch known rows again
+    Math.floor(start - paddingRows * cache.averageRowBytes) // fetch a bit before, to ensure we get a complete first row
+  );
+  let cursor = firstChunkOffset;
   let isFirstStep = true;
+  const endCursor = Math.ceil(end + paddingRows * cache.averageRowBytes); // fetch a bit after, just in case the average is not accurate
 
   return new Promise<void>((resolve, reject) => {
     Papa.parse<string[]>(cache.url, {
@@ -481,15 +488,24 @@ function fetchRange({
       delimiter: cache.header.delimiter,
       newline: cache.header.newline,
       chunkSize: cache.chunkSize,
-      firstChunkOffset: start, // custom option, only available in the modified Papaparse @severo_tests/papaparse
+      firstChunkOffset, // custom option, only available in the modified Papaparse @severo_tests/papaparse
       step: ({ data, meta }, parser) => {
         if (signal?.aborted) {
           parser.abort();
           return;
         }
 
-        const parsedRow = { start: cursor, end: start + meta.cursor, data };
-        cursor = start + meta.cursor;
+        const parsedRow = {
+          start: cursor,
+          end: firstChunkOffset + meta.cursor,
+          data,
+        };
+        cursor = parsedRow.end;
+
+        if (isFirstStep) {
+          isFirstStep = false;
+          return; // ignore the first row, because we cannot know if it's partial or complete
+        }
 
         if (meta.delimiter !== cache.header.delimiter) {
           reject(
@@ -507,12 +523,12 @@ function fetchRange({
         }
 
         // add the row to the cache
-        if (addParsedRowToCache({ cache, parsedRow, isFirstStep })) {
+        if (addParsedRowToCache({ cache, parsedRow })) {
           // send an event for the new row
           eventTarget.dispatchEvent(new CustomEvent("resolve"));
         }
 
-        if (cursor >= end) {
+        if (cursor >= endCursor) {
           // abort the parsing, we have enough rows for now
           parser.abort();
           return;
@@ -537,17 +553,10 @@ function isEmpty(data: string[]): boolean {
 function addParsedRowToCache({
   cache,
   parsedRow,
-  isFirstStep,
 }: {
   cache: Cache;
   parsedRow: ParsedRow;
-  isFirstStep: boolean; // to handle the case where we start in the middle of a row
 }): boolean {
-  if (isFirstStep && parsedRow.data.length < cache.header.data.length) {
-    // the first parsed row is partial, we ignore it, it must be part of the previous row
-    return false;
-  }
-
   // TODO(SL): optimize
   const inserted = !isEmpty(parsedRow.data);
   const allRanges = [cache.serial, ...cache.random];
