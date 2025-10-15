@@ -23,7 +23,7 @@ export type CSVDataFrame = DataFrame<Metadata>;
 
 const defaultChunkSize = 50 * 1024; // 50 KB, same as Papaparse default
 const defaultMaxCachedBytes = 20 * 1024 * 1024; // 20 MB
-const paddingRows = 10; // fetch a bit before and after the requested range, to avoid cutting rows
+const paddingRows = 20; // fetch a bit before and after the requested range, to avoid cutting rows
 
 interface Params {
   url: string;
@@ -110,7 +110,7 @@ export async function csvDataFrame({
       step: ({ data, meta }, parser) => {
         const parsedRow = {
           start: cursor,
-          end: meta.cursor,
+          end: meta.cursor, // it's not exact! if the string contains "é", it counts as 2 bytes, but Papaparse counts it as 1 character!!!
           data,
         };
         cursor = parsedRow.end;
@@ -167,6 +167,7 @@ export async function csvDataFrame({
       },
     });
   });
+  console.log(firstParsedRange);
   if (header === undefined) {
     throw new Error("No header row found in the CSV file");
   }
@@ -287,80 +288,87 @@ export async function csvDataFrame({
       },
     });
 
-    // await Promise.resolve(); // ensure async
+    let previousAverageRowBytes = undefined as number | undefined;
+    let i = 0;
+    while (previousAverageRowBytes !== cache.averageRowBytes && i < 10) {
+      i++; // to avoid infinite loops in case of instability
 
-    if (rowEnd < cache.serial.validRows.length) {
-      // all rows are in the serial range
-      return;
-    }
-    if (rowStart < cache.serial.validRows.length) {
-      // ignore the rows already cached
-      rowStart = cache.serial.validRows.length;
-    }
+      if (rowEnd < cache.serial.validRows.length) {
+        // all rows are in the serial range
+        return;
+      }
+      if (rowStart < cache.serial.validRows.length) {
+        // ignore the rows already cached
+        rowStart = cache.serial.validRows.length;
+      }
 
-    const estimatedStart = Math.floor(
-      cache.header.bytes + rowStart * cache.averageRowBytes
-    );
-    const estimatedEnd = Math.min(
-      byteLength,
-      Math.ceil(cache.header.bytes + rowEnd * cache.averageRowBytes)
-    );
-    // find the ranges of rows we don't have yet
-    // start with the full range, and then remove the parts we have
-    const missingRange = {
-      start: estimatedStart,
-      end: estimatedEnd,
-    };
-    const missingRanges: { start: number; end: number }[] = [];
-    // Loop on the random ranges, which are sorted and non-overlapping
-    for (const range of cache.random) {
-      if (missingRange.end <= range.start) {
-        // no overlap, and no more overlap possible
+      const estimatedStart = Math.floor(
+        cache.serial.end +
+          (rowStart - cache.serial.validRows.length) * cache.averageRowBytes
+      );
+      const estimatedEnd = Math.min(
+        byteLength,
+        Math.ceil(
+          cache.serial.end +
+            (rowEnd - cache.serial.validRows.length) * cache.averageRowBytes
+        )
+      );
+      // find the ranges of rows we don't have yet
+      // start with the full range, and then remove the parts we have
+      const missingRange = {
+        start: estimatedStart,
+        end: estimatedEnd,
+      };
+      const missingRanges: { start: number; end: number }[] = [];
+      // Loop on the random ranges, which are sorted and non-overlapping
+      for (const range of cache.random) {
+        if (missingRange.end <= range.start) {
+          // no overlap, and no more overlap possible
+          missingRanges.push(missingRange);
+          break;
+        }
+        if (missingRange.start >= range.end) {
+          // no overlap, check the next range
+          continue;
+        }
+        // overlap
+        if (missingRange.start < range.start) {
+          // add the part before the overlap
+          missingRanges.push({
+            start: missingRange.start,
+            end: range.start,
+          });
+        }
+        // move the start to the end of the range
+        missingRange.start = range.end;
+        if (missingRange.start >= missingRange.end) {
+          // no more missing range
+          break;
+        }
+      }
+      if (missingRange.start < missingRange.end) {
+        // add the remaining part
         missingRanges.push(missingRange);
-        break;
       }
-      if (missingRange.start >= range.end) {
-        // no overlap, check the next range
-        continue;
-      }
-      // overlap
-      if (missingRange.start < range.start) {
-        // add the part before the overlap
-        missingRanges.push({
-          start: missingRange.start,
-          end: range.start,
-        });
-      }
-      // move the start to the end of the range
-      missingRange.start = range.end;
-      if (missingRange.start >= missingRange.end) {
-        // no more missing range
-        break;
-      }
-    }
-    if (missingRange.start < missingRange.end) {
-      // add the remaining part
-      missingRanges.push(missingRange);
-    }
 
-    if (missingRanges.length === 0) {
-      // all rows are already cached
-      return;
+      if (missingRanges.length === 0) {
+        // all rows are already cached
+        return;
+      }
+
+      // fetch each missing range and fill the cache
+      await Promise.all(
+        missingRanges.map(({ start, end }) =>
+          fetchRange({ start, end, signal, cache, eventTarget })
+        )
+      ).finally(() => {
+        // TODO(SL): Update the average size of a row?
+        // For now, we keep it constant, to provide stability - otherwise empty rows appear after the update
+        previousAverageRowBytes = cache.averageRowBytes;
+        cache.averageRowBytes = getAverageRowBytes(cache);
+        //eventTarget.dispatchEvent(new CustomEvent("resolve")); // to refresh the table (hmmm. Or better call fetch again until we reach stability?)
+      });
     }
-
-    // fetch each missing range and fill the cache
-
-    await Promise.all(
-      missingRanges.map(({ start, end }) =>
-        fetchRange({ start, end, signal, cache, eventTarget })
-      )
-      // TODO(SL): check the signal?
-    ).finally(() => {
-      // TODO(SL): Update the average size of a row?
-      // For now, we keep it constant, to provide stability - otherwise empty rows appear after the update
-      // cache.averageRowBytes = getAverageRowBytes(cache);
-      // eventTarget.dispatchEvent(new CustomEvent("resolve")); // to refresh the table
-    });
 
     // TODO(SL): evict old rows (or only cell contents?) if needed
     // TODO(SL): handle fetching (and most importantly storing) only part of the columns?
@@ -392,7 +400,6 @@ function findParsedRow({ cache, row }: { cache: Cache; row: number }):
     };
   }
   const estimatedStart =
-    cache.header.bytes +
     cache.serial.end +
     (row - cache.serial.validRows.length) * cache.averageRowBytes;
   // find the range containing this row
@@ -403,10 +410,12 @@ function findParsedRow({ cache, row }: { cache: Cache; row: number }):
     return; // not found
   }
   // estimate the row index of the first row in the range
-  const firstRowIndex = Math.round(
-    // is .round() better than .floor() or .ceil()?
-    (range.start - cache.header.bytes) / cache.averageRowBytes
-  );
+  const firstRowIndex =
+    cache.serial.validRows.length +
+    Math.round(
+      // is .round() better than .floor() or .ceil()?
+      (range.start - cache.serial.end) / cache.averageRowBytes
+    );
   // get the row in the range. This way, we ensure that calls to findParsedRow() with increasing row numbers
   // will return rows in the same order, without holes or duplicates, even if the averageRowBytes is not accurate.
   const parsedRow = range.validRows[row - firstRowIndex];
