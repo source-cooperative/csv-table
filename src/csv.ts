@@ -226,7 +226,8 @@ export async function csvDataFrame({
         throw new Error(`Column not found: ${column}`);
       }
       const value = parsedRow.data[columnIndex]; // TODO(SL): we could convert to a type, here or in the cache
-      return value ? { value } : undefined;
+      // return value ? { value } : undefined;
+      return { value: value ?? "" }; // return empty cells as empty strings, because we assume that all the row has been parsed
     }
     return undefined;
   }
