@@ -1,4 +1,5 @@
 import type {
+  CustomEventTarget,
   DataFrame,
   DataFrameEvents,
   OrderBy,
@@ -16,6 +17,7 @@ import { formatBytes } from "./helpers.js";
 
 interface Metadata {
   isPartial: boolean;
+  cachedBytes: number;
 }
 export type CSVDataFrame = DataFrame<Metadata>;
 
@@ -30,26 +32,33 @@ interface Params {
   signal?: AbortSignal; // to abort the DataFrame creation and any ongoing fetches
 }
 
-interface RowEntry {
-  data: (ResolvedValue<string> | undefined)[]; // TODO(SL): convert from strings to typed values?
-  bytesRead: number;
-  firstByte: number;
+// rows are indexed by their first byte position. Includes empty row and the header
+interface ParsedRow {
+  start: number; // byte position of the start of the row
+  end: number; // byte position of the end of the row, including the delimiters and the following linebreak if any (exclusive)
+  data: string[]; // raw string values, as parsed by Papaparse (no eviction yet - we could handle them with "undefined" cells)
 }
 
-interface CSVHeader {
-  columnNames: string[];
-  delimiter: string;
-  linebreak: string;
-  bytesRead: number;
-  firstByte: number;
+// ranges are sorted. We use binary search to find the missing ranges, and then merge them if needed
+interface ParsedRange {
+  start: number; // byte position of the start of the range (excludes the ignored bytes if the range starts in the middle of a row)
+  end: number; // byte position of the end of the range (exclusive)
+  validRows: ParsedRow[]; // sorted array of the range rows, filtering out the empty rows and the header if any
 }
 
 interface Cache {
   header: CSVHeader;
-  rows: Map<number, RowEntry>; // row index -> row data
-  estimatedNumRows: number; // based on average row length
-  firstChunkOffset: number; // byte offset of the first chunk (0 for the first fetch, >0 for subsequent fetches)
-  cachedBytes: number; // total number of bytes cached
+  serial: ParsedRange;
+  random: ParsedRange[];
+  cachedBytes: number; // total number of bytes cached (for statistics)
+  chunkSize: number; // chunk size used for fetching
+  url: string;
+  averageRowBytes: number; // average number of bytes per row
+}
+
+interface CSVHeader extends ParsedRow {
+  delimiter: string;
+  newline: Exclude<Papa.ParseConfig<string[]>["newline"], undefined>;
 }
 
 /**
@@ -74,40 +83,58 @@ export async function csvDataFrame({
 
   const eventTarget = createEventTarget<DataFrameEvents>();
 
-  const rows = new Map<number, RowEntry>(); // row index -> row data,
+  // const parsedRowIndex: ParsedRowIndex = new Map(); // first byte offset -> parsed row // TODO(SL): delete? I think it's not needed
+
   // type assertion is needed because Typescript cannot see if variable is updated in the Papa.parse step callback
   let header = undefined as CSVHeader | undefined;
   let cursor = 0;
-  let rowIndex = 0;
   let cachedBytes = 0;
 
   // Fetch the first chunk (stop at 80% of the chunk size, to avoid doing another fetch, as we have no way to limit to one chunk in Papaparse)
   // TODO(SL): should we return the dataframe after parsing one row, and then keep parsing the chunk, but triggering updates?)
+  const firstParsedRange: ParsedRange = {
+    start: cursor,
+    end: cursor,
+    validRows: [],
+  };
   const isPartial = await new Promise<boolean>((resolve, reject) => {
     Papa.parse<string[]>(url, {
       download: true,
+      chunkSize,
+      header: false,
+      worker: false, // don't use the worker! because it does not provide the cursor at a line level!
+      skipEmptyLines: false, // to be able to compute the byte ranges. Beware, it requires post processing (see result.rows.at(-1), for example, when fetching all the rows)
+      dynamicTyping: false, // keep strings, and let the user convert them if needed
       step: ({ data, meta }, parser) => {
-        const bytesRead = meta.cursor - cursor;
-        const firstByte = cursor;
+        const start = cursor;
         cursor = meta.cursor;
-        if (cursor >= 0.8 * chunkSize || rowIndex >= 100) {
+        const end = cursor;
+        if (
+          cursor >= 0.8 * chunkSize ||
+          firstParsedRange.validRows.length >= 100
+        ) {
           // abort the parsing, we have enough rows for now
           parser.abort();
           return;
         }
 
-        if (data.length <= 1 && data[0]?.trim() === "") {
+        const parsedRow = { start, end, data };
+        // parsedRowIndex.set(start, parsedRow); // TODO(SL): remove?
+        // for the statistics:
+        cachedBytes += parsedRow.end - parsedRow.start;
+
+        firstParsedRange.end = end;
+
+        if (isEmpty(data)) {
           // empty row, ignore
           return;
         }
         if (header === undefined) {
           // first non-empty row: header
           header = {
-            columnNames: [...data],
+            ...parsedRow,
             delimiter: meta.delimiter,
-            linebreak: meta.linebreak,
-            firstByte,
-            bytesRead,
+            newline: getNewline(meta.linebreak),
           };
         } else {
           if (meta.delimiter !== header.delimiter) {
@@ -116,26 +143,16 @@ export async function csvDataFrame({
                 `Delimiter changed from ${header.delimiter} to ${meta.delimiter}`
               )
             );
-            return;
           }
-          if (meta.linebreak !== header.linebreak) {
+          if (meta.linebreak !== header.newline) {
             reject(
               new Error(
-                `Linebreak changed from ${header.linebreak} to ${meta.linebreak}`
+                `Linebreak changed from ${header.newline} to ${meta.linebreak}`
               )
             );
-            return;
           }
-          const rowEntry: RowEntry = {
-            data: header.columnNames.map((_, i) => {
-              return data[i] === undefined ? undefined : { value: data[i] }; // TODO(SL): convert to typed value?
-            }),
-            bytesRead,
-            firstByte,
-          };
-          rows.set(rowIndex, rowEntry); // we don't evict in the first chunk pass, as the max cache size is greater than the chunk size
-          cachedBytes += bytesRead;
-          rowIndex++;
+          // valid row: add it to the range
+          firstParsedRange.validRows.push(parsedRow);
         }
         // the errors field is ignored
       },
@@ -143,33 +160,39 @@ export async function csvDataFrame({
         const isPartial = meta.aborted;
         resolve(isPartial);
       },
-      chunkSize,
-      header: false,
-      worker: false, // don't use the worker! because it does not provide the cursor at a line level!
-      skipEmptyLines: false, // to be able to compute the byte ranges. Beware, it requires post processing (see result.rows.at(-1), for example, when fetching all the rows)
-      dynamicTyping: false, // keep strings, and let the user convert them if needed
     });
   });
   if (header === undefined) {
     throw new Error("No header row found in the CSV file");
   }
 
+  const averageRowBytes = getAverageRowBytes({
+    serial: firstParsedRange,
+    header,
+    random: [],
+  });
+
   const cache: Cache = {
     header,
-    rows,
-    firstChunkOffset: cursor,
+    serial: firstParsedRange,
+    random: [],
     cachedBytes,
-    estimatedNumRows: isPartial
-      ? Math.floor((rows.size * byteLength) / cursor)
-      : rows.size, // see https://github.com/hyparam/hightable/issues/298
+    chunkSize,
+    url,
+    averageRowBytes,
   };
-  console.log(cache);
 
-  const numRows = cache.estimatedNumRows; // Update when we fetch more rows?
-  const columnDescriptors: DataFrame["columnDescriptors"] =
-    header.columnNames.map((name) => ({ name }));
+  const numRows =
+    isPartial && averageRowBytes
+      ? Math.floor(byteLength / averageRowBytes) // see https://github.com/hyparam/hightable/issues/298
+      : firstParsedRange.validRows.length;
+
+  const columnDescriptors: DataFrame["columnDescriptors"] = header.data.map(
+    (name) => ({ name })
+  );
   const metadata: Metadata = {
     isPartial,
+    cachedBytes,
   };
 
   function getCell({
@@ -182,20 +205,23 @@ export async function csvDataFrame({
     orderBy?: OrderBy;
   }): ResolvedValue | undefined {
     // TODO(SL): how to handle the last rows when the number of rows is uncertain?
-    validateGetCellParams({
-      row,
-      column,
-      orderBy,
-      data: { numRows, columnDescriptors },
-    });
-    const rowEntry = cache.rows.get(row);
-    if (rowEntry) {
-      const colIndex = columnDescriptors.findIndex((cd) => cd.name === column);
-      if (colIndex === -1) {
+    // validateGetCellParams({
+    //   row,
+    //   column,
+    //   orderBy,
+    //   data: { numRows, columnDescriptors },
+    // });
+    const parsedRow = findParsedRow({ cache, row });
+    if (parsedRow) {
+      const columnIndex = columnDescriptors.findIndex(
+        (cd) => cd.name === column
+      );
+      if (columnIndex === -1) {
         // should not happen because of the validation above
         throw new Error(`Column not found: ${column}`);
       }
-      return rowEntry.data[colIndex];
+      const value = parsedRow.data[columnIndex]; // TODO(SL): we could convert to a type, here or in the cache
+      return value ? { value } : undefined;
     }
     return undefined;
   }
@@ -208,14 +234,15 @@ export async function csvDataFrame({
     orderBy?: OrderBy;
   }): ResolvedValue<number> | undefined {
     // TODO(SL): how to handle the last rows when the number of rows is uncertain?
-    validateGetRowNumberParams({
-      row,
-      orderBy,
-      data: { numRows, columnDescriptors },
-    });
-    if (cache.rows.has(row)) {
+    // validateGetRowNumberParams({
+    //   row,
+    //   orderBy,
+    //   data: { numRows, columnDescriptors },
+    // });
+    const parsedRow = findParsedRow({ cache, row });
+    if (parsedRow?.type === "serial") {
       return { value: row };
-    }
+    } // don't return anything if we are not serial
     return undefined;
   }
 
@@ -233,16 +260,105 @@ export async function csvDataFrame({
     signal?: AbortSignal;
   }): Promise<void> {
     checkSignal(signal);
+
     validateFetchParams({
       rowStart,
       rowEnd,
       columns,
       orderBy,
-      data: { numRows, columnDescriptors },
+      data: {
+        numRows: Infinity, // we don't (always) know the exact number of rows yet
+        columnDescriptors,
+      },
     });
-    await Promise.resolve(); // to make the function async for now
 
-    // TODO(SL): implement fetching more rows, updating the cache, evicting old rows if needed
+    // await Promise.resolve(); // ensure async
+
+    if (rowEnd < cache.serial.validRows.length) {
+      // all rows are in the serial range
+      return;
+    }
+    if (rowStart < cache.serial.validRows.length) {
+      // ignore the rows already cached
+      rowStart = cache.serial.validRows.length;
+    }
+
+    const estimatedStart = Math.floor(
+      cache.header.end - cache.header.start + rowStart * cache.averageRowBytes
+    );
+    const estimatedEnd = Math.min(
+      byteLength,
+      Math.ceil(
+        cache.header.end - cache.header.start + rowEnd * cache.averageRowBytes
+      )
+    );
+    // find the ranges of rows we don't have yet
+    // start with the full range, and then remove the parts we have
+    const missingRange = {
+      start: estimatedStart,
+      end: estimatedEnd,
+    };
+    const missingRanges: { start: number; end: number }[] = [];
+    // Loop on the random ranges, which are sorted and non-overlapping
+    for (const range of cache.random) {
+      if (missingRange.end <= range.start) {
+        // no overlap, and no more overlap possible
+        missingRanges.push(missingRange);
+        break;
+      }
+      if (missingRange.start >= range.end) {
+        // no overlap, check the next range
+        continue;
+      }
+      // overlap
+      if (missingRange.start < range.start) {
+        // add the part before the overlap
+        missingRanges.push({
+          start: missingRange.start,
+          end: range.start,
+        });
+      }
+      // move the start to the end of the range
+      missingRange.start = range.end;
+      if (missingRange.start >= missingRange.end) {
+        // no more missing range
+        break;
+      }
+    }
+    if (missingRange.start < missingRange.end) {
+      // add the remaining part
+      missingRanges.push(missingRange);
+    }
+
+    if (missingRanges.length === 0) {
+      // all rows are already cached
+      return;
+    }
+
+    console.debug({
+      rowStart,
+      rowEnd,
+      estimatedStart,
+      estimatedEnd,
+      missingRanges,
+      cache,
+    });
+
+    // fetch each missing range and fill the cache
+
+    await Promise.all(
+      missingRanges.map(({ start, end }) =>
+        fetchRange({ start, end, signal, cache, eventTarget })
+      )
+      // TODO(SL): check the signal?
+    ).finally(() => {
+      // TODO(SL): Update the average size of a row?
+      // For now, we keep it constant, to provide stability - otherwise empty rows appear after the update
+      // cache.averageRowBytes = getAverageRowBytes(cache);
+    });
+
+    // TODO(SL): evict old rows (or only cell contents?) if needed
+    // TODO(SL): handle fetching (and most importantly storing) only part of the columns?
     // Note that source.coop does not support negative ranges for now https://github.com/source-cooperative/data.source.coop/issues/57 (for https://github.com/hyparam/hightable/issues/298#issuecomment-3381567614)
   }
 
@@ -255,4 +371,230 @@ export async function csvDataFrame({
     fetch,
     eventTarget,
   };
+}
+
+function findParsedRow({ cache, row }: { cache: Cache; row: number }):
+  | (ParsedRow & {
+      type: "serial" | "random";
+    })
+  | undefined {
+  // TODO(SL): optimize (cache the row numbers?)
+  const parsedRow = cache.serial.validRows[row];
+  if (parsedRow) {
+    return {
+      type: "serial",
+      ...parsedRow,
+    };
+  }
+  const estimatedStart =
+    cache.header.end - cache.header.start + row * cache.averageRowBytes;
+  // find the range containing this row
+  for (const range of cache.random) {
+    if (estimatedStart >= range.start && estimatedStart < range.end) {
+      // found the range, now find the row in it
+      for (const r of range.validRows) {
+        if (r.start <= estimatedStart && r.end > estimatedStart) {
+          return {
+            type: "random",
+            ...r,
+          };
+        }
+      }
+    }
+  }
+  return; // not found
+}
+
+function getAverageRowBytes(
+  cache: Pick<Cache, "serial" | "header" | "random">
+): number {
+  let numRows = cache.serial.validRows.length;
+  let numBytes =
+    cache.serial.end -
+    cache.serial.start -
+    (cache.header.end - cache.header.start);
+
+  for (const range of cache.random) {
+    numRows += range.validRows.length;
+    numBytes += range.end - range.start;
+  }
+  if (numRows === 0 || numBytes === 0) {
+    throw new Error("No data row found in the CSV file");
+  }
+  return numBytes / numRows;
+}
+
+function getNewline(
+  linebreak: string
+): Exclude<Papa.ParseConfig<string[]>["newline"], undefined> {
+  switch (linebreak) {
+    case "\r\n":
+    case "\n":
+    case "\r":
+      return linebreak;
+    default:
+      throw new Error(`Unsupported linebreak: ${linebreak}`); // should not happen
+  }
+}
+
+function fetchRange({
+  start,
+  end,
+  signal,
+  cache,
+  eventTarget,
+}: {
+  start: number;
+  end: number;
+  signal?: AbortSignal;
+  cache: Cache;
+  eventTarget: CustomEventTarget<DataFrameEvents>;
+}): Promise<void> {
+  checkSignal(signal);
+
+  let cursor = start;
+
+  return new Promise<void>((resolve, reject) => {
+    Papa.parse<string[]>(cache.url, {
+      download: true,
+      header: false,
+      worker: false, // don't use the worker! because it does not provide the cursor at a line level!
+      skipEmptyLines: false, // to be able to compute the byte ranges. Beware, it requires post processing (see result.rows.at(-1), for example, when fetching all the rows)
+      dynamicTyping: false, // keep strings, and let the user convert them if needed
+      delimiter: cache.header.delimiter,
+      newline: cache.header.newline,
+      chunkSize: cache.chunkSize,
+      firstChunkOffset: start, // custom option, only available in the modified Papaparse @severo_tests/papaparse
+      step: ({ data, meta }, parser) => {
+        if (signal?.aborted) {
+          parser.abort();
+          return;
+        }
+
+        const parsedRow = { start: cursor, end: start + meta.cursor, data };
+        cursor = start + meta.cursor;
+
+        if (meta.delimiter !== cache.header.delimiter) {
+          reject(
+            new Error(
+              `Delimiter changed from ${cache.header.delimiter} to ${meta.delimiter}`
+            )
+          );
+        }
+        if (meta.linebreak !== cache.header.newline) {
+          reject(
+            new Error(
+              `Linebreak changed from ${cache.header.newline} to ${meta.linebreak}`
+            )
+          );
+        }
+
+        // add the row to the cache
+        if (addParsedRowToCache({ cache, parsedRow })) {
+          // send an event for the new row
+          eventTarget.dispatchEvent(new CustomEvent("resolve"));
+        }
+
+        if (cursor >= end) {
+          // abort the parsing, we have enough rows for now
+          parser.abort();
+          return;
+        }
+      },
+      complete: () => {
+        resolve();
+      },
+    });
+  });
+}
+
+function isEmpty(data: string[]): boolean {
+  return data.length <= 1 && data[0]?.trim() === "";
+}
+
+/**
+ * Returns true if the row was added to the cache, false if it was already present or empty
+ */
+function addParsedRowToCache({
+  cache,
+  parsedRow,
+}: {
+  cache: Cache;
+  parsedRow: ParsedRow;
+}): boolean {
+  console.debug({ cache, parsedRow });
+
+  // TODO(SL): optimize
+  const inserted = !isEmpty(parsedRow.data);
+  const allRanges = [cache.serial, ...cache.random];
+
+  if (
+    allRanges.some((r) => parsedRow.start < r.end && parsedRow.end > r.start)
+  ) {
+    // an overlap means the row is already in the cache. ignore it
+    return false;
+  }
+
+  for (const [i, range] of allRanges.entries()) {
+    if (parsedRow.end < range.start) {
+      // create a new random range before this one
+      const newRange: ParsedRange = {
+        start: parsedRow.start,
+        end: parsedRow.end,
+        validRows: [],
+      };
+      if (inserted) {
+        newRange.validRows.push(parsedRow);
+        cache.cachedBytes += parsedRow.end - parsedRow.start;
+      }
+      // the range cannot be cache.serial because of the check above, let's assert it
+      if (i < 1) {
+        throw new Error(
+          "Unexpected state: cannot insert before the serial range"
+        );
+      }
+      cache.random.splice(i - 1, 0, newRange);
+      return inserted;
+    }
+    if (parsedRow.end === range.start) {
+      // expand this range at the beginning
+      range.start = parsedRow.start;
+      if (inserted) {
+        range.validRows.unshift(parsedRow);
+        cache.cachedBytes += parsedRow.end - parsedRow.start;
+      }
+      return inserted;
+    }
+    if (parsedRow.start === range.end) {
+      // expand this range at the end
+      range.end = parsedRow.end;
+      if (inserted) {
+        range.validRows.push(parsedRow);
+        cache.cachedBytes += parsedRow.end - parsedRow.start;
+      }
+      // try to merge with the next range
+      const nextRange = cache.random[i]; // equivalent to allRanges[i + 1]
+      if (nextRange && range.end === nextRange.start) {
+        range.end = nextRange.end;
+        for (const r of nextRange.validRows) {
+          range.validRows.push(r);
+        }
+        // remove the next range
+        cache.random.splice(i, 1);
+      }
+      return inserted;
+    }
+  }
+  // add a new range at the end
+  const newRange: ParsedRange = {
+    start: parsedRow.start,
+    end: parsedRow.end,
+    validRows: [],
+  };
+  if (inserted) {
+    newRange.validRows.push(parsedRow);
+    cache.cachedBytes += parsedRow.end - parsedRow.start;
+  }
+  cache.random.push(newRange);
+  return inserted;
 }
