@@ -21,7 +21,7 @@
   tbody {
     [role="rowheader"] {
       text-align: right;
-      padding-right: 8px;
+      padding-right: 2px;
       font-size: 0.625rem; /* column width computation is not optimal in hightable, reducing the font size to avoid cutting the numbers */
       font-family: var(--code-font-family);
     }

@@ -395,8 +395,10 @@ function findParsedRow({ cache, row }: { cache: Cache; row: number }):
       ...serialParsedRow,
     };
   }
-  // TODO(SL): we know the index of the last row in the serial range, we can be more precise
-  const estimatedStart = cache.header.bytes + row * cache.averageRowBytes;
+  const estimatedStart =
+    cache.header.bytes +
+    cache.serial.end +
+    (row - cache.serial.validRows.length) * cache.averageRowBytes;
   // find the range containing this row
   const range = cache.random.find(
     (r) => estimatedStart >= r.start && estimatedStart < r.end
@@ -466,6 +468,7 @@ function fetchRange({
   checkSignal(signal);
 
   let cursor = start;
+  let isFirstStep = true;
 
   return new Promise<void>((resolve, reject) => {
     Papa.parse<string[]>(cache.url, {
@@ -503,7 +506,7 @@ function fetchRange({
         }
 
         // add the row to the cache
-        if (addParsedRowToCache({ cache, parsedRow })) {
+        if (addParsedRowToCache({ cache, parsedRow, isFirstStep })) {
           // send an event for the new row
           eventTarget.dispatchEvent(new CustomEvent("resolve"));
         }
@@ -513,6 +516,8 @@ function fetchRange({
           parser.abort();
           return;
         }
+
+        isFirstStep = false;
       },
       complete: () => {
         resolve();
@@ -531,11 +536,16 @@ function isEmpty(data: string[]): boolean {
 function addParsedRowToCache({
   cache,
   parsedRow,
+  isFirstStep,
 }: {
   cache: Cache;
   parsedRow: ParsedRow;
+  isFirstStep: boolean; // to handle the case where we start in the middle of a row
 }): boolean {
-  console.debug({ cache, parsedRow });
+  if (isFirstStep && parsedRow.data.length < cache.header.data.length) {
+    // the first parsed row is partial, we ignore it, it must be part of the previous row
+    return false;
+  }
 
   // TODO(SL): optimize
   const inserted = !isEmpty(parsedRow.data);
