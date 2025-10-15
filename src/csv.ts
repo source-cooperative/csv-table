@@ -59,6 +59,7 @@ interface Cache {
 interface CSVHeader extends ParsedRow {
   delimiter: string;
   newline: Exclude<Papa.ParseConfig<string[]>["newline"], undefined>;
+  bytes: number; // number of bytes used by the header row, including the delimiters and the following linebreak if any
 }
 
 /**
@@ -135,6 +136,7 @@ export async function csvDataFrame({
             ...parsedRow,
             delimiter: meta.delimiter,
             newline: getNewline(meta.linebreak),
+            bytes: parsedRow.end - parsedRow.start,
           };
         } else {
           if (meta.delimiter !== header.delimiter) {
@@ -248,8 +250,11 @@ export async function csvDataFrame({
     const parsedRow = findParsedRow({ cache, row });
     if (parsedRow?.type === "serial") {
       return { value: row };
-    } // don't return anything if we are not serial
-    return undefined;
+    }
+    if (parsedRow?.type === "random") {
+      // TODO(SL): how could we convey the fact that the row number is approximate?
+      return { value: row };
+    }
   }
 
   async function fetch({
@@ -290,13 +295,11 @@ export async function csvDataFrame({
     }
 
     const estimatedStart = Math.floor(
-      cache.header.end - cache.header.start + rowStart * cache.averageRowBytes
+      cache.header.bytes + rowStart * cache.averageRowBytes
     );
     const estimatedEnd = Math.min(
       byteLength,
-      Math.ceil(
-        cache.header.end - cache.header.start + rowEnd * cache.averageRowBytes
-      )
+      Math.ceil(cache.header.bytes + rowEnd * cache.averageRowBytes)
     );
     // find the ranges of rows we don't have yet
     // start with the full range, and then remove the parts we have
@@ -385,40 +388,44 @@ function findParsedRow({ cache, row }: { cache: Cache; row: number }):
     })
   | undefined {
   // TODO(SL): optimize (cache the row numbers?)
-  const parsedRow = cache.serial.validRows[row];
-  if (parsedRow) {
+  const serialParsedRow = cache.serial.validRows[row];
+  if (serialParsedRow) {
     return {
       type: "serial",
-      ...parsedRow,
+      ...serialParsedRow,
     };
   }
-  const estimatedStart =
-    cache.header.end - cache.header.start + row * cache.averageRowBytes;
+  // TODO(SL): we know the index of the last row in the serial range, we can be more precise
+  const estimatedStart = cache.header.bytes + row * cache.averageRowBytes;
   // find the range containing this row
-  for (const range of cache.random) {
-    if (estimatedStart >= range.start && estimatedStart < range.end) {
-      // found the range, now find the row in it
-      for (const r of range.validRows) {
-        if (r.start <= estimatedStart && r.end > estimatedStart) {
-          return {
-            type: "random",
-            ...r,
-          };
-        }
-      }
-    }
+  const range = cache.random.find(
+    (r) => estimatedStart >= r.start && estimatedStart < r.end
+  );
+  if (!range) {
+    return; // not found
   }
-  return; // not found
+  // estimate the row index of the first row in the range
+  const firstRowIndex = Math.round(
+    // is .round() better than .floor() or .ceil()?
+    (range.start - cache.header.bytes) / cache.averageRowBytes
+  );
+  // get the row in the range. This way, we ensure that calls to findParsedRow() with increasing row numbers
+  // will return rows in the same order, without holes or duplicates, even if the averageRowBytes is not accurate.
+  const parsedRow = range.validRows[row - firstRowIndex];
+  if (!parsedRow) {
+    return; // not found
+  }
+  return {
+    type: "random",
+    ...parsedRow,
+  };
 }
 
 function getAverageRowBytes(
   cache: Pick<Cache, "serial" | "header" | "random">
 ): number {
   let numRows = cache.serial.validRows.length;
-  let numBytes =
-    cache.serial.end -
-    cache.serial.start -
-    (cache.header.end - cache.header.start);
+  let numBytes = cache.serial.end - cache.serial.start - cache.header.bytes;
 
   for (const range of cache.random) {
     numRows += range.validRows.length;
