@@ -95,7 +95,7 @@ export async function csvDataFrame({
   // Fetch the first chunk (stop at 80% of the chunk size, to avoid doing another fetch, as we have no way to limit to one chunk in Papaparse)
   // TODO(SL): should we return the dataframe after parsing one row, and then keep parsing the chunk, but triggering updates?)
   const firstParsedRange: ParsedRange = {
-    start: cursor,
+    start: 0,
     end: cursor,
     validRows: [],
   };
@@ -108,30 +108,30 @@ export async function csvDataFrame({
       skipEmptyLines: false, // to be able to compute the byte ranges. Beware, it requires post processing (see result.rows.at(-1), for example, when fetching all the rows)
       dynamicTyping: false, // keep strings, and let the user convert them if needed
       step: ({ data, meta }, parser) => {
-        const start = cursor;
-        cursor = meta.cursor;
-        const end = cursor;
+        const parsedRow = {
+          start: cursor,
+          end: meta.cursor,
+          data,
+        };
+        cursor = parsedRow.end;
+
         if (
-          cursor >= 0.8 * chunkSize ||
+          cursor >= 0.8 * chunkSize || // stop at 80% of the chunk size, to avoid doing another fetch, as we have no way to limit to one chunk in Papaparse
           firstParsedRange.validRows.length >= 100
         ) {
           // abort the parsing, we have enough rows for now
           parser.abort();
           return;
         }
-
-        const parsedRow = { start, end, data };
-        // parsedRowIndex.set(start, parsedRow); // TODO(SL): remove?
-        // for the statistics:
-        cachedBytes += parsedRow.end - parsedRow.start;
-
-        firstParsedRange.end = end;
+        // update the range end, even if the row is empty
+        firstParsedRange.end = parsedRow.end;
 
         if (isEmpty(data)) {
           // empty row, ignore
           return;
         }
         if (header === undefined) {
+          // TODO(SL): should the header be included in the first range bytes?
           // first non-empty row: header
           header = {
             ...parsedRow,
@@ -156,6 +156,8 @@ export async function csvDataFrame({
           }
           // valid row: add it to the range
           firstParsedRange.validRows.push(parsedRow);
+          // for the statistics:
+          cachedBytes += parsedRow.end - parsedRow.start;
         }
         // the errors field is ignored
       },
@@ -345,15 +347,6 @@ export async function csvDataFrame({
       // all rows are already cached
       return;
     }
-
-    console.debug({
-      rowStart,
-      rowEnd,
-      estimatedStart,
-      estimatedEnd,
-      missingRanges,
-      cache,
-    });
 
     // fetch each missing range and fill the cache
 
