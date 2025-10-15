@@ -205,12 +205,15 @@ export async function csvDataFrame({
     orderBy?: OrderBy;
   }): ResolvedValue | undefined {
     // TODO(SL): how to handle the last rows when the number of rows is uncertain?
-    // validateGetCellParams({
-    //   row,
-    //   column,
-    //   orderBy,
-    //   data: { numRows, columnDescriptors },
-    // });
+    validateGetCellParams({
+      row,
+      column,
+      orderBy,
+      data: {
+        numRows: Infinity, // we don't (always) know the exact number of rows yet
+        columnDescriptors,
+      },
+    });
     const parsedRow = findParsedRow({ cache, row });
     if (parsedRow) {
       const columnIndex = columnDescriptors.findIndex(
@@ -234,11 +237,14 @@ export async function csvDataFrame({
     orderBy?: OrderBy;
   }): ResolvedValue<number> | undefined {
     // TODO(SL): how to handle the last rows when the number of rows is uncertain?
-    // validateGetRowNumberParams({
-    //   row,
-    //   orderBy,
-    //   data: { numRows, columnDescriptors },
-    // });
+    validateGetRowNumberParams({
+      row,
+      orderBy,
+      data: {
+        numRows: Infinity, // we don't (always) know the exact number of rows yet
+        columnDescriptors,
+      },
+    });
     const parsedRow = findParsedRow({ cache, row });
     if (parsedRow?.type === "serial") {
       return { value: row };
