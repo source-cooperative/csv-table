@@ -12,7 +12,6 @@ import {
   validateGetCellParams,
   validateGetRowNumberParams,
 } from "hightable";
-import Papa from "@severo_tests/papaparse";
 import { formatBytes } from "./helpers.js";
 
 interface Metadata {

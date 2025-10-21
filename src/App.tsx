@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useReducer, useState } from "react";
 
-import { type CSVDataFrame, csvDataFrame } from "./csv.js";
+import { type CSVDataFrame, csvDataFrame } from "./dataframe.js";
 import { byteLengthFromUrl } from "./helpers.js";
 import Dropzone from "./Dropzone.js";
 import Layout from "./Layout.js";

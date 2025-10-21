@@ -1,7 +1,7 @@
 import HighTable from "hightable";
 import { type ReactNode } from "react";
 import Loading from "./Loading.js";
-import type { CSVDataFrame } from "./csv.js";
+import type { CSVDataFrame } from "./dataframe.js";
 
 export interface PageProps {
   df?: CSVDataFrame;
