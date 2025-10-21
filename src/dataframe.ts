@@ -13,6 +13,7 @@ import {
   validateGetRowNumberParams,
 } from "hightable";
 import { formatBytes } from "./helpers.js";
+import { parseCSV, type Newline } from "./csv.js";
 
 interface Metadata {
   isPartial: boolean;
@@ -58,7 +59,7 @@ interface Cache {
 
 interface CSVHeader extends ParsedRow {
   delimiter: string;
-  newline: Exclude<Papa.ParseConfig<string[]>["newline"], undefined>;
+  newline: Newline;
   bytes: number; // number of bytes used by the header row, including the delimiters and the following linebreak if any
 }
 
@@ -98,73 +99,56 @@ export async function csvDataFrame({
     end: cursor,
     validRows: [],
   };
-  const isPartial = await new Promise<boolean>((resolve, reject) => {
-    Papa.parse<string[]>(url, {
-      download: true,
-      chunkSize,
-      header: false,
-      worker: false, // don't use the worker! because it does not provide the cursor at a line level!
-      skipEmptyLines: false, // to be able to compute the byte ranges. Beware, it requires post processing (see result.rows.at(-1), for example, when fetching all the rows)
-      dynamicTyping: false, // keep strings, and let the user convert them if needed
-      step: ({ data, meta }, parser) => {
-        const parsedRow = {
-          start: cursor,
-          end: meta.cursor, // it's not exact! if the string contains "é", it counts as 2 bytes, but Papaparse counts it as 1 character!!!
-          data,
+  const { partial: isPartial } = await parseCSV(url, {
+    chunkSize,
+    step: ({ data, meta }, parser) => {
+      const parsedRow = {
+        start: cursor,
+        end: meta.cursor, // it's not exact! if the string contains "é", it counts as 2 bytes, but Papaparse counts it as 1 character!!!
+        data,
+      };
+      cursor = parsedRow.end;
+      if (
+        cursor >= 0.8 * chunkSize || // stop at 80% of the chunk size, to avoid doing another fetch, as we have no way to limit to one chunk in Papaparse
+        firstParsedRange.validRows.length >= 100
+      ) {
+        // abort the parsing, we have enough rows for now
+        parser.abort();
+        return;
+      }
+      // update the range end, even if the row is empty
+      firstParsedRange.end = parsedRow.end;
+      if (isEmpty(data)) {
+        // empty row, ignore
+        return;
+      }
+      if (header === undefined) {
+        // TODO(SL): should the header be included in the first range bytes?
+        // first non-empty row: header
+        header = {
+          ...parsedRow,
+          delimiter: meta.delimiter,
+          newline: getNewline(meta.linebreak),
+          bytes: parsedRow.end - parsedRow.start,
         };
-        cursor = parsedRow.end;
-
-        if (
-          cursor >= 0.8 * chunkSize || // stop at 80% of the chunk size, to avoid doing another fetch, as we have no way to limit to one chunk in Papaparse
-          firstParsedRange.validRows.length >= 100
-        ) {
-          // abort the parsing, we have enough rows for now
-          parser.abort();
-          return;
+      } else {
+        if (meta.delimiter !== header.delimiter) {
+          throw new Error(
+            `Delimiter changed from ${header.delimiter} to ${meta.delimiter}`
+          );
         }
-        // update the range end, even if the row is empty
-        firstParsedRange.end = parsedRow.end;
-
-        if (isEmpty(data)) {
-          // empty row, ignore
-          return;
+        if (meta.linebreak !== header.newline) {
+          throw new Error(
+            `Linebreak changed from ${header.newline} to ${meta.linebreak}`
+          );
         }
-        if (header === undefined) {
-          // TODO(SL): should the header be included in the first range bytes?
-          // first non-empty row: header
-          header = {
-            ...parsedRow,
-            delimiter: meta.delimiter,
-            newline: getNewline(meta.linebreak),
-            bytes: parsedRow.end - parsedRow.start,
-          };
-        } else {
-          if (meta.delimiter !== header.delimiter) {
-            reject(
-              new Error(
-                `Delimiter changed from ${header.delimiter} to ${meta.delimiter}`
-              )
-            );
-          }
-          if (meta.linebreak !== header.newline) {
-            reject(
-              new Error(
-                `Linebreak changed from ${header.newline} to ${meta.linebreak}`
-              )
-            );
-          }
-          // valid row: add it to the range
-          firstParsedRange.validRows.push(parsedRow);
-          // for the statistics:
-          cachedBytes += parsedRow.end - parsedRow.start;
-        }
-        // the errors field is ignored
-      },
-      complete: ({ meta }) => {
-        const isPartial = meta.aborted;
-        resolve(isPartial);
-      },
-    });
+        // valid row: add it to the range
+        firstParsedRange.validRows.push(parsedRow);
+        // for the statistics:
+        cachedBytes += parsedRow.end - parsedRow.start;
+      }
+      // the errors field is ignored
+    },
   });
   console.log(firstParsedRange);
   if (header === undefined) {
@@ -443,9 +427,7 @@ function getAverageRowBytes(
   return numBytes / numRows;
 }
 
-function getNewline(
-  linebreak: string
-): Exclude<Papa.ParseConfig<string[]>["newline"], undefined> {
+function getNewline(linebreak: string): Newline {
   switch (linebreak) {
     case "\r\n":
     case "\n":
@@ -456,7 +438,7 @@ function getNewline(
   }
 }
 
-function fetchRange({
+async function fetchRange({
   start,
   end,
   signal,
@@ -471,76 +453,62 @@ function fetchRange({
 }): Promise<void> {
   checkSignal(signal);
 
-  const firstChunkOffset = Math.max(
+  const offset = Math.max(
     cache.serial.end, // don't fetch known rows again
     Math.floor(start - paddingRows * cache.averageRowBytes) // fetch a bit before, to ensure we get a complete first row
   );
-  let cursor = firstChunkOffset;
+  let cursor = offset;
   let isFirstStep = true;
   const endCursor = Math.ceil(end + paddingRows * cache.averageRowBytes); // fetch a bit after, just in case the average is not accurate
 
-  return new Promise<void>((resolve, reject) => {
-    Papa.parse<string[]>(cache.url, {
-      download: true,
-      header: false,
-      worker: false, // don't use the worker! because it does not provide the cursor at a line level!
-      skipEmptyLines: false, // to be able to compute the byte ranges. Beware, it requires post processing (see result.rows.at(-1), for example, when fetching all the rows)
-      dynamicTyping: false, // keep strings, and let the user convert them if needed
-      delimiter: cache.header.delimiter,
-      newline: cache.header.newline,
-      chunkSize: cache.chunkSize,
-      firstChunkOffset, // custom option, only available in the modified Papaparse @severo_tests/papaparse
-      step: ({ data, meta }, parser) => {
-        if (signal?.aborted) {
-          parser.abort();
-          return;
-        }
+  await parseCSV(cache.url, {
+    delimiter: cache.header.delimiter,
+    newline: cache.header.newline,
+    chunkSize: cache.chunkSize,
+    offset,
+    step: ({ data, meta }, parser) => {
+      if (signal?.aborted) {
+        parser.abort();
+        return;
+      }
 
-        const parsedRow = {
-          start: cursor,
-          end: firstChunkOffset + meta.cursor,
-          data,
-        };
-        cursor = parsedRow.end;
+      const parsedRow = {
+        start: cursor,
+        end: offset + meta.cursor,
+        data,
+      };
+      cursor = parsedRow.end;
 
-        if (isFirstStep) {
-          isFirstStep = false;
-          return; // ignore the first row, because we cannot know if it's partial or complete
-        }
-
-        if (meta.delimiter !== cache.header.delimiter) {
-          reject(
-            new Error(
-              `Delimiter changed from ${cache.header.delimiter} to ${meta.delimiter}`
-            )
-          );
-        }
-        if (meta.linebreak !== cache.header.newline) {
-          reject(
-            new Error(
-              `Linebreak changed from ${cache.header.newline} to ${meta.linebreak}`
-            )
-          );
-        }
-
-        // add the row to the cache
-        if (addParsedRowToCache({ cache, parsedRow })) {
-          // send an event for the new row
-          eventTarget.dispatchEvent(new CustomEvent("resolve"));
-        }
-
-        if (cursor >= endCursor) {
-          // abort the parsing, we have enough rows for now
-          parser.abort();
-          return;
-        }
-
+      if (isFirstStep) {
         isFirstStep = false;
-      },
-      complete: () => {
-        resolve();
-      },
-    });
+        return; // ignore the first row, because we cannot know if it's partial or complete
+      }
+
+      if (meta.delimiter !== cache.header.delimiter) {
+        throw new Error(
+          `Delimiter changed from ${cache.header.delimiter} to ${meta.delimiter}`
+        );
+      }
+      if (meta.linebreak !== cache.header.newline) {
+        throw new Error(
+          `Linebreak changed from ${cache.header.newline} to ${meta.linebreak}`
+        );
+      }
+
+      // add the row to the cache
+      if (addParsedRowToCache({ cache, parsedRow })) {
+        // send an event for the new row
+        eventTarget.dispatchEvent(new CustomEvent("resolve"));
+      }
+
+      if (cursor >= endCursor) {
+        // abort the parsing, we have enough rows for now
+        parser.abort();
+        return;
+      }
+
+      isFirstStep = false;
+    },
   });
 }
 
