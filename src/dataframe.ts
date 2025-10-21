@@ -13,7 +13,7 @@ import {
   validateGetRowNumberParams,
 } from "hightable";
 import { formatBytes } from "./helpers.js";
-import { parseCSV, type Newline } from "./csv.js";
+import { parseCSV, CSVRow } from "./csv.js";
 
 interface Metadata {
   isPartial: boolean;
@@ -33,34 +33,39 @@ interface Params {
   signal?: AbortSignal; // to abort the DataFrame creation and any ongoing fetches
 }
 
-// rows are indexed by their first byte position. Includes empty row and the header
-interface ParsedRow {
-  start: number; // byte position of the start of the row
-  end: number; // byte position of the end of the row, including the delimiters and the following linebreak if any (exclusive)
-  data: string[]; // raw string values, as parsed by Papaparse (no eviction yet - we could handle them with "undefined" cells)
-}
+// // ranges are sorted. We use binary search to find the missing ranges, and then merge them if needed
+// interface CSVRange {
+//   start: number; // byte position of the start of the range (excludes the ignored bytes if the range starts in the middle of a row)
+//   bytes: number; // number of bytes in the range
+//   end: number; // first byte after the range (redundant: start + bytes)
+//   validRows: CSVRow[]; // sorted array of the range rows, filtering out the empty rows and the header if any
+// }
 
-// ranges are sorted. We use binary search to find the missing ranges, and then merge them if needed
-interface ParsedRange {
+class CSVRange {
   start: number; // byte position of the start of the range (excludes the ignored bytes if the range starts in the middle of a row)
-  end: number; // byte position of the end of the range (exclusive)
-  validRows: ParsedRow[]; // sorted array of the range rows, filtering out the empty rows and the header if any
+  bytes: number; // number of bytes in the range
+  validRows: CSVRow[]; // sorted array of the range rows, filtering out the empty rows and the header if any
+
+  constructor(start: number, bytes: number, validRows: CSVRow[]) {
+    this.start = start;
+    this.bytes = bytes;
+    this.validRows = validRows;
+  }
+
+  // first byte after the range (redundant: start + bytes)
+  get end(): number {
+    return this.start + this.bytes;
+  }
 }
 
 interface Cache {
-  header: CSVHeader;
-  serial: ParsedRange;
-  random: ParsedRange[];
+  header: CSVRow;
+  serial: CSVRange;
+  random: CSVRange[];
   cachedBytes: number; // total number of bytes cached (for statistics)
   chunkSize: number; // chunk size used for fetching
   url: string;
   averageRowBytes: number; // average number of bytes per row
-}
-
-interface CSVHeader extends ParsedRow {
-  delimiter: string;
-  newline: Newline;
-  bytes: number; // number of bytes used by the header row, including the delimiters and the following linebreak if any
 }
 
 /**
@@ -88,82 +93,62 @@ export async function csvDataFrame({
   // const parsedRowIndex: ParsedRowIndex = new Map(); // first byte offset -> parsed row // TODO(SL): delete? I think it's not needed
 
   // type assertion is needed because Typescript cannot see if variable is updated in the Papa.parse step callback
-  let header = undefined as CSVHeader | undefined;
-  let cursor = 0;
+  let header = undefined as CSVRow | undefined;
   let cachedBytes = 0;
 
   // Fetch the first chunk (stop at 80% of the chunk size, to avoid doing another fetch, as we have no way to limit to one chunk in Papaparse)
   // TODO(SL): should we return the dataframe after parsing one row, and then keep parsing the chunk, but triggering updates?)
-  const firstParsedRange: ParsedRange = {
+  const serial: CSVRange = {
     start: 0,
-    end: cursor,
+    bytes: 0,
+    end: 0,
     validRows: [],
   };
   const { partial: isPartial } = await parseCSV(url, {
     chunkSize,
-    step: ({ data, meta }, parser) => {
-      const parsedRow = {
-        start: cursor,
-        end: meta.cursor, // it's not exact! if the string contains "é", it counts as 2 bytes, but Papaparse counts it as 1 character!!!
-        data,
-      };
-      cursor = parsedRow.end;
+    delimiter: ",", // TODO(SL): auto detect
+    newline: "\n", // TODO(SL): auto detect
+    step: (row, parser) => {
+      // update the range size, even if the row is empty
+      serial.bytes += row.bytes;
       if (
-        cursor >= 0.8 * chunkSize || // stop at 80% of the chunk size, to avoid doing another fetch, as we have no way to limit to one chunk in Papaparse
-        firstParsedRange.validRows.length >= 100
+        serial.bytes >= 0.8 * chunkSize || // stop at 80% of the chunk size, to avoid doing another fetch, as we have no way to limit to one chunk in Papaparse
+        serial.validRows.length >= 100
       ) {
         // abort the parsing, we have enough rows for now
         parser.abort();
         return;
       }
-      // update the range end, even if the row is empty
-      firstParsedRange.end = parsedRow.end;
-      if (isEmpty(data)) {
+      if (isEmpty(row.data)) {
         // empty row, ignore
         return;
       }
+      // for the statistics (we store the data, be it the header or a data row):
+      cachedBytes += row.bytes;
       if (header === undefined) {
-        // TODO(SL): should the header be included in the first range bytes?
         // first non-empty row: header
-        header = {
-          ...parsedRow,
-          delimiter: meta.delimiter,
-          newline: getNewline(meta.linebreak),
-          bytes: parsedRow.end - parsedRow.start,
-        };
+        header = row;
       } else {
-        if (meta.delimiter !== header.delimiter) {
-          throw new Error(
-            `Delimiter changed from ${header.delimiter} to ${meta.delimiter}`
-          );
-        }
-        if (meta.linebreak !== header.newline) {
-          throw new Error(
-            `Linebreak changed from ${header.newline} to ${meta.linebreak}`
-          );
-        }
         // valid row: add it to the range
-        firstParsedRange.validRows.push(parsedRow);
-        // for the statistics:
-        cachedBytes += parsedRow.end - parsedRow.start;
+        serial.validRows.push(row);
       }
       // the errors field is ignored
     },
   });
-  console.log(firstParsedRange);
+  console.log(serial);
   if (header === undefined) {
     throw new Error("No header row found in the CSV file");
   }
 
   const averageRowBytes = getAverageRowBytes({
-    serial: firstParsedRange,
+    serial,
     header,
     random: [],
   });
 
   const cache: Cache = {
     header,
-    serial: firstParsedRange,
+    serial,
     random: [],
     cachedBytes,
     chunkSize,
@@ -174,7 +159,7 @@ export async function csvDataFrame({
   const numRows =
     isPartial && averageRowBytes
       ? Math.floor(byteLength / averageRowBytes) // see https://github.com/hyparam/hightable/issues/298
-      : firstParsedRange.validRows.length;
+      : serial.validRows.length;
 
   const columnDescriptors: DataFrame["columnDescriptors"] = header.data.map(
     (name) => ({ name })
@@ -212,7 +197,7 @@ export async function csvDataFrame({
         // should not happen because of the validation above
         throw new Error(`Column not found: ${column}`);
       }
-      const value = parsedRow.data[columnIndex]; // TODO(SL): we could convert to a type, here or in the cache
+      const value = parsedRow.row.data[columnIndex]; // TODO(SL): we could convert to a type, here or in the cache
       // return value ? { value } : undefined;
       return { value: value ?? "" }; // return empty cells as empty strings, because we assume that all the row has been parsed
     }
@@ -286,13 +271,13 @@ export async function csvDataFrame({
       }
 
       const estimatedStart = Math.floor(
-        cache.serial.end +
+        serial.end +
           (rowStart - cache.serial.validRows.length) * cache.averageRowBytes
       );
       const estimatedEnd = Math.min(
         byteLength,
         Math.ceil(
-          cache.serial.end +
+          serial.end +
             (rowEnd - cache.serial.validRows.length) * cache.averageRowBytes
         )
       );
@@ -370,24 +355,25 @@ export async function csvDataFrame({
 }
 
 function findParsedRow({ cache, row }: { cache: Cache; row: number }):
-  | (ParsedRow & {
+  | {
       type: "serial" | "random";
-    })
+      row: CSVRow;
+    }
   | undefined {
   // TODO(SL): optimize (cache the row numbers?)
-  const serialParsedRow = cache.serial.validRows[row];
-  if (serialParsedRow) {
+  const serialRow = cache.serial.validRows[row];
+  if (serialRow) {
     return {
       type: "serial",
-      ...serialParsedRow,
+      row: serialRow,
     };
   }
+  const serialEnd = cache.serial.start + cache.serial.bytes;
   const estimatedStart =
-    cache.serial.end +
-    (row - cache.serial.validRows.length) * cache.averageRowBytes;
+    serialEnd + (row - cache.serial.validRows.length) * cache.averageRowBytes;
   // find the range containing this row
   const range = cache.random.find(
-    (r) => estimatedStart >= r.start && estimatedStart < r.end
+    (r) => estimatedStart >= r.start && estimatedStart < r.start + r.bytes
   );
   if (!range) {
     return; // not found
@@ -397,17 +383,17 @@ function findParsedRow({ cache, row }: { cache: Cache; row: number }):
     cache.serial.validRows.length +
     Math.round(
       // is .round() better than .floor() or .ceil()?
-      (range.start - cache.serial.end) / cache.averageRowBytes
+      (range.start - serialEnd) / cache.averageRowBytes
     );
   // get the row in the range. This way, we ensure that calls to findParsedRow() with increasing row numbers
   // will return rows in the same order, without holes or duplicates, even if the averageRowBytes is not accurate.
-  const parsedRow = range.validRows[row - firstRowIndex];
-  if (!parsedRow) {
+  const randomRow = range.validRows[row - firstRowIndex];
+  if (!randomRow) {
     return; // not found
   }
   return {
     type: "random",
-    ...parsedRow,
+    row: randomRow,
   };
 }
 
@@ -415,27 +401,16 @@ function getAverageRowBytes(
   cache: Pick<Cache, "serial" | "header" | "random">
 ): number {
   let numRows = cache.serial.validRows.length;
-  let numBytes = cache.serial.end - cache.serial.start - cache.header.bytes;
+  let numBytes = cache.serial.bytes - cache.header.bytes;
 
   for (const range of cache.random) {
     numRows += range.validRows.length;
-    numBytes += range.end - range.start;
+    numBytes += range.bytes;
   }
   if (numRows === 0 || numBytes === 0) {
     throw new Error("No data row found in the CSV file");
   }
   return numBytes / numRows;
-}
-
-function getNewline(linebreak: string): Newline {
-  switch (linebreak) {
-    case "\r\n":
-    case "\n":
-    case "\r":
-      return linebreak;
-    default:
-      throw new Error(`Unsupported linebreak: ${linebreak}`); // should not happen
-  }
 }
 
 async function fetchRange({
@@ -457,57 +432,39 @@ async function fetchRange({
     cache.serial.end, // don't fetch known rows again
     Math.floor(start - paddingRows * cache.averageRowBytes) // fetch a bit before, to ensure we get a complete first row
   );
-  let cursor = offset;
   let isFirstStep = true;
   const endCursor = Math.ceil(end + paddingRows * cache.averageRowBytes); // fetch a bit after, just in case the average is not accurate
 
   await parseCSV(cache.url, {
-    delimiter: cache.header.delimiter,
-    newline: cache.header.newline,
+    delimiter: ",", // TODO(SL): auto detect - or pass from cache?
+    newline: "\n", // TODO(SL): auto detect - or pass from cache?
     chunkSize: cache.chunkSize,
-    offset,
-    step: ({ data, meta }, parser) => {
+    offset, // TODO(SL): replace with start/end?
+    step: (row, parser) => {
       if (signal?.aborted) {
         parser.abort();
         return;
       }
 
-      const parsedRow = {
-        start: cursor,
-        end: offset + meta.cursor,
-        data,
-      };
-      cursor = parsedRow.end;
-
+      // ignore the first row, because we cannot know if it's partial or complete
       if (isFirstStep) {
         isFirstStep = false;
-        return; // ignore the first row, because we cannot know if it's partial or complete
-      }
-
-      if (meta.delimiter !== cache.header.delimiter) {
-        throw new Error(
-          `Delimiter changed from ${cache.header.delimiter} to ${meta.delimiter}`
-        );
-      }
-      if (meta.linebreak !== cache.header.newline) {
-        throw new Error(
-          `Linebreak changed from ${cache.header.newline} to ${meta.linebreak}`
-        );
+        return;
       }
 
       // add the row to the cache
-      if (addParsedRowToCache({ cache, parsedRow })) {
+      if (addRowToCache({ cache, row })) {
         // send an event for the new row
         eventTarget.dispatchEvent(new CustomEvent("resolve"));
       }
 
-      if (cursor >= endCursor) {
+      if (row.end >= endCursor) {
         // abort the parsing, we have enough rows for now
         parser.abort();
         return;
       }
 
-      isFirstStep = false;
+      // the errors field is ignored
     },
   });
 }
@@ -519,35 +476,23 @@ function isEmpty(data: string[]): boolean {
 /**
  * Returns true if the row was added to the cache, false if it was already present or empty
  */
-function addParsedRowToCache({
-  cache,
-  parsedRow,
-}: {
-  cache: Cache;
-  parsedRow: ParsedRow;
-}): boolean {
+function addRowToCache({ cache, row }: { cache: Cache; row: CSVRow }): boolean {
   // TODO(SL): optimize
-  const inserted = !isEmpty(parsedRow.data);
+  const inserted = !isEmpty(row.data);
   const allRanges = [cache.serial, ...cache.random];
 
-  if (
-    allRanges.some((r) => parsedRow.start < r.end && parsedRow.end > r.start)
-  ) {
+  if (allRanges.some((r) => row.start < r.end && row.end > r.start)) {
     // an overlap means the row is already in the cache. ignore it
     return false;
   }
 
   for (const [i, range] of allRanges.entries()) {
-    if (parsedRow.end < range.start) {
+    if (row.end < range.start) {
       // create a new random range before this one
-      const newRange: ParsedRange = {
-        start: parsedRow.start,
-        end: parsedRow.end,
-        validRows: [],
-      };
+      const newRange = new CSVRange(row.start, row.bytes, []);
       if (inserted) {
-        newRange.validRows.push(parsedRow);
-        cache.cachedBytes += parsedRow.end - parsedRow.start;
+        newRange.validRows.push(row);
+        cache.cachedBytes += row.end - row.start;
       }
       // the range cannot be cache.serial because of the check above, let's assert it
       if (i < 1) {
@@ -558,26 +503,26 @@ function addParsedRowToCache({
       cache.random.splice(i - 1, 0, newRange);
       return inserted;
     }
-    if (parsedRow.end === range.start) {
+    if (row.end === range.start) {
       // expand this range at the beginning
-      range.start = parsedRow.start;
+      range.start = row.start;
       if (inserted) {
-        range.validRows.unshift(parsedRow);
-        cache.cachedBytes += parsedRow.end - parsedRow.start;
+        range.validRows.unshift(row);
+        cache.cachedBytes += row.bytes;
       }
       return inserted;
     }
-    if (parsedRow.start === range.end) {
+    if (row.start === range.end) {
       // expand this range at the end
-      range.end = parsedRow.end;
+      range.bytes += row.bytes;
       if (inserted) {
-        range.validRows.push(parsedRow);
-        cache.cachedBytes += parsedRow.end - parsedRow.start;
+        range.validRows.push(row);
+        cache.cachedBytes += row.bytes;
       }
       // try to merge with the next range
       const nextRange = cache.random[i]; // equivalent to allRanges[i + 1]
       if (nextRange && range.end === nextRange.start) {
-        range.end = nextRange.end;
+        range.bytes += nextRange.bytes;
         for (const r of nextRange.validRows) {
           range.validRows.push(r);
         }
@@ -588,14 +533,10 @@ function addParsedRowToCache({
     }
   }
   // add a new range at the end
-  const newRange: ParsedRange = {
-    start: parsedRow.start,
-    end: parsedRow.end,
-    validRows: [],
-  };
+  const newRange = new CSVRange(row.start, row.bytes, []);
   if (inserted) {
-    newRange.validRows.push(parsedRow);
-    cache.cachedBytes += parsedRow.end - parsedRow.start;
+    newRange.validRows.push(row);
+    cache.cachedBytes += row.bytes;
   }
   cache.random.push(newRange);
   return inserted;
