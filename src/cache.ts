@@ -3,6 +3,13 @@ import { isEmptyLine, parseURL } from 'csv-range'
 
 import { formatBytes } from './helpers.js'
 
+interface MissingRange {
+  firstByte: number
+  ignoreFirstRow: boolean
+  lastByte: number
+  ignoreLastRow: boolean
+  maxNumRows: number | undefined
+}
 /**
  * A byte range in a CSV file, with the parsed rows
  */
@@ -163,6 +170,20 @@ export class CSVCache {
     this.#delimiter = header.meta.delimiter
     this.#newline = header.meta.newline
     this.#serial = new CSVRange({ firstByte: 0, firstRow: 0 })
+    if (header.meta.byteOffset > 0) {
+      // there are ignored bytes before the header
+      this.#serial.append({
+        row: [],
+        errors: [],
+        meta: {
+          byteOffset: 0,
+          byteCount: header.meta.byteOffset,
+          charCount: 0,
+          delimiter: header.meta.delimiter,
+          newline: header.meta.newline,
+        },
+      }, { ignore: true })
+    }
     this.#serial.append(header, { ignore: true })
     this.#random = []
     // TODO(SL): keep track of the errors
@@ -308,7 +329,7 @@ export class CSVCache {
         // merge with the next range if needed
         if (nextRange && previousRange.next.firstByte - 1 === (nextRange.previous?.lastByte ?? Infinity)) {
           // merge nextRange into previousRange
-          this.merge(previousRange, nextRange)
+          this.#merge(previousRange, nextRange)
         }
       }
       else if (nextRange && row.meta.byteOffset + row.meta.byteCount === (nextRange.previous?.lastByte ?? Infinity) + 1) {
@@ -345,7 +366,7 @@ export class CSVCache {
    * @param range The first range. It can be the serial range, or a random range.
    * @param followingRange The second range, must be immediately after the first range. It is a random range.
    */
-  merge(range: CSVRange, followingRange: CSVRange): void {
+  #merge(range: CSVRange, followingRange: CSVRange): void {
     if (range.next.firstByte !== (followingRange.previous?.lastByte ?? Infinity) + 1) {
       throw new Error('Cannot merge ranges: not contiguous')
     }
@@ -367,13 +388,16 @@ export class CSVCache {
    * @param options.rowEnd The end row index (0-based, exclusive)
    * @returns An array of byte ranges to fetch
    */
-  getMissingRowRanges({ rowStart, rowEnd }: { rowStart: number, rowEnd: number }): { firstByte: number, ignoreFirstRow: boolean, lastByte: number, ignoreLastRow: boolean }[] {
-    const missingRanges: { firstByte: number, ignoreFirstRow: boolean, lastByte: number, ignoreLastRow: boolean }[] = []
+  getMissingRowRanges({ rowStart, rowEnd }: { rowStart: number, rowEnd: number }): MissingRange[] {
+    const missingRanges: MissingRange[] = []
 
     // try every empty range between known rows
     let first = this.#serial.next
-    for (const { previous, next } of [...this.#random, { previous: undefined, next: { row: Infinity, firstByte: this.#byteLength } }]) {
-      const last = previous ?? { row: Infinity, lastByte: this.#byteLength - 1 }
+    for (const { previous: last, next } of [...this.#random, { previous: { row: Infinity, lastByte: this.#byteLength - 1 }, next: { row: Infinity, firstByte: this.#byteLength } }]) {
+      if (last === undefined) {
+        // only the serial range should have no previous range
+        throw new Error('Invalid range: missing previous range')
+      }
       rowStart = Math.max(rowStart, first.row)
       if (rowEnd < rowStart) {
         // finished
@@ -387,10 +411,13 @@ export class CSVCache {
 
         const rangeRowEnd = Math.min(rowEnd, last.row)
         const isEndContiguous = rangeRowEnd === last.row
-        const ignoreLastRow = !isEndContiguous // if not contiguous, we need to ignore the last row, because it could be partial
-        const lastByte = isEndContiguous ? last.lastByte : last.lastByte - Math.floor((last.row - rangeRowEnd) * (this.#averageRowByteCount ?? 0))
+        const ignoreLastRow = !isEndContiguous && last.row !== Infinity // if not contiguous and the last byte is defined, we need to ignore the last row, because it could be partial
+        const lastByte = isEndContiguous || last.row === Infinity
+          ? last.lastByte
+          : last.lastByte - Math.floor((last.row - rangeRowEnd) * (this.#averageRowByteCount ?? 0))
+        const maxNumRows = last.row === Infinity ? rangeRowEnd - rowStart : undefined
 
-        missingRanges.push({ firstByte, ignoreFirstRow, lastByte, ignoreLastRow })
+        missingRanges.push({ firstByte, ignoreFirstRow, lastByte, ignoreLastRow, maxNumRows })
       }
       first = next
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { CSVRange } from '../src/cache.js'
+import { CSVCache, CSVRange } from '../src/cache.js'
 
 describe('CSVRange', () => {
   it('should initialize correctly', () => {
@@ -140,5 +140,35 @@ describe('CSVRange', () => {
         },
       })
     }).toThrow('Cannot append the row: it is not contiguous with the last row')
+  })
+})
+
+describe('CSVCache', () => {
+  it('should initialize correctly', () => {
+    const header = {
+      row: ['col1', 'col2', 'col3'],
+      errors: [],
+      meta: {
+        byteOffset: 0,
+        byteCount: 15,
+        charCount: 14,
+        delimiter: ',',
+        newline: '\n' as const,
+      },
+    }
+    const cache = new CSVCache({
+      header,
+      byteLength: 100,
+    })
+    expect(cache.columnNames).toEqual(['col1', 'col2', 'col3'])
+    expect(cache.rowCount).toBe(0)
+    expect(cache.delimiter).toBe(',')
+    expect(cache.newline).toBe('\n')
+    expect(() => cache.estimateNumRows()).toThrow('Cannot estimate number of rows: average row byte count is undefined')
+    expect(cache.getCell({ row: 0, column: 0 })).toBeUndefined()
+    expect(cache.getRowNumber({ row: 0 })).toBeUndefined()
+    expect(cache.getMissingRowRanges({ rowStart: 0, rowEnd: 10 })).toEqual([
+      { firstByte: 15, ignoreFirstRow: false, lastByte: 99, ignoreLastRow: false, maxNumRows: 10 },
+    ])
   })
 })

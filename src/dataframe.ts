@@ -153,7 +153,7 @@ export async function csvDataFrame({ url, byteLength, chunkSize, maxCachedBytes 
     const missingRanges = cache.getMissingRowRanges({ rowStart, rowEnd })
 
     // Fetching serially, because inserting a row can result in ranges merging/changing
-    for (const { firstByte, ignoreFirstRow, lastByte, ignoreLastRow } of missingRanges) {
+    for (const { firstByte, ignoreFirstRow, lastByte, ignoreLastRow, maxNumRows } of missingRanges) {
       let i = -1
       // To be able to ignore the last row, we need to buffer one row ahead
       let lastResult: ParseResult | undefined = undefined
@@ -165,6 +165,9 @@ export async function csvDataFrame({ url, byteLength, chunkSize, maxCachedBytes 
         lastByte,
       })) {
         i++
+        if (maxNumRows !== undefined && i >= maxNumRows) {
+          break
+        }
         checkSignal(signal)
 
         // cache the previous row
