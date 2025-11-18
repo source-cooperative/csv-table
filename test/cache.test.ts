@@ -228,6 +228,13 @@ describe('CSVCache', () => {
       expect(cache.getCell({ row: 3, column: 1 })).toStrictEqual({ value: 'e' })
       expect(cache.getCell({ row: 3, column: 2 })).toStrictEqual({ value: 'f' })
       expect(cache.getRowNumber({ row: 3 })).toStrictEqual({ value: 3 })
+
+      // adding an ignored row should not change the average row byte count
+      cache.store({
+        byteOffset: 60,
+        byteCount: 5,
+      })
+      expect(cache.averageRowByteCount).toBe(9)
     })
 
     it('should report if all the rows are cached', () => {
@@ -389,6 +396,184 @@ describe('CSVCache', () => {
         byteOffset: 50,
         byteCount: 10,
       })
+    })
+  })
+
+  describe('getCell', () => {
+    it('should throw for out-of-bounds rows or columns', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      expect(() => cache.getCell({ row: -1, column: 0 })).toThrow()
+      expect(() => cache.getCell({ row: 0, column: -1 })).toThrow()
+      expect(() => cache.getCell({ row: 0, column: 3 })).toThrow()
+    })
+
+    it('should return undefined for missing row', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store a row
+      cache.store({
+        cells: ['a', 'b', 'c'],
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      // Missing row
+      expect(cache.getCell({ row: 1, column: 0 })).toBeUndefined()
+    })
+
+    it('should return empty string for missing column', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store a row
+      cache.store({
+        cells: ['a', 'b'], // missing last column
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      // Missing column
+      expect(cache.getCell({ row: 0, column: 2 })).toStrictEqual({ value: '' })
+    })
+
+    it('should return the correct cell value for existing rows and columns', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store a row
+      cache.store({
+        cells: ['a', 'b', 'c'],
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      // Existing row and columns
+      expect(cache.getCell({ row: 0, column: 0 })).toStrictEqual({ value: 'a' })
+      expect(cache.getCell({ row: 0, column: 1 })).toStrictEqual({ value: 'b' })
+      expect(cache.getCell({ row: 0, column: 2 })).toStrictEqual({ value: 'c' })
+    })
+  })
+
+  describe('getRowNumber', () => {
+    it('should throw for out-of-bounds rows', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      expect(() => cache.getRowNumber({ row: -1 })).toThrow()
+    })
+
+    it('should return undefined for missing row', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store a row
+      cache.store({
+        cells: ['a', 'b', 'c'],
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      // Missing row
+      expect(cache.getRowNumber({ row: 1 })).toBeUndefined()
+    })
+
+    it('should return the correct row number for existing rows', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store a row
+      cache.store({
+        cells: ['a', 'b', 'c'],
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      // Existing row
+      expect(cache.getRowNumber({ row: 0 })).toStrictEqual({ value: 0 })
+    })
+  })
+
+  describe('getNextMissingRow', () => {
+    it.each([
+      { range: { rowStart: 0, rowEnd: 10 } },
+      { range: { rowStart: 5, rowEnd: 15 } },
+      { range: { rowStart: 10, rowEnd: 20 } },
+    ])('should propose the first byte if the cache is empty since it cannot estimate positions: %o', ({ range }) => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 200,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      expect(cache.getNextMissingRow(range)).toEqual({ firstByte: 10, isEstimate: false })
+    })
+
+    it.each([
+      { options: { rowStart: 0, rowEnd: 0 }, expected: undefined },
+      { options: { rowStart: 0, rowEnd: 2 }, expected: { firstByte: 20, isEstimate: false } },
+      { options: { rowStart: 1, rowEnd: 2 }, expected: { firstByte: 20, isEstimate: false } },
+      { options: { rowStart: 2, rowEnd: 2 }, expected: { firstByte: 28, isEstimate: true } },
+      { options: { rowStart: 3, rowEnd: 2 }, expected: undefined },
+    ])('should propose the next missing row correctly after #serial range: %o', ({ options, expected }) => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 200,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Stored row is in the #serial range, next.firstByte is 20
+      cache.store({ byteOffset: 10, byteCount: 10, cells: ['x', 'y', 'z'] })
+      expect(cache.getNextMissingRow(options)).toEqual(expected)
+    })
+
+    it.each([
+      { options: { rowStart: 0, rowEnd: 4 }, expected: { firstByte: 10, isEstimate: false } },
+      { options: { rowStart: 1, rowEnd: 4 }, expected: { firstByte: 18, isEstimate: true } },
+      { options: { rowStart: 2, rowEnd: 4 }, expected: { firstByte: 40, isEstimate: false } },
+      { options: { rowStart: 3, rowEnd: 4 }, expected: { firstByte: 40, isEstimate: false } },
+      { options: { rowStart: 4, rowEnd: 4 }, expected: { firstByte: 48, isEstimate: true } },
+    ])('should propose the next missing row correctly around a random range: %o', ({ options, expected }) => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 200,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Stored row is in a random range, next.firstByte is 40
+      cache.store({ byteOffset: 30, byteCount: 10, cells: ['x', 'y', 'z'] })
+      // the estimated row number is 2
+      expect(cache.getRowNumber({ row: 2 })).toEqual({ value: 2 })
+
+      expect(cache.getNextMissingRow(options)).toEqual(expected)
     })
   })
 })

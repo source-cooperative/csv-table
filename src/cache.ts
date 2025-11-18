@@ -1,5 +1,4 @@
 import type { Newline, ParseResult } from 'csv-range'
-import { isEmptyLine, parseURL } from 'csv-range'
 
 import { checkNonNegativeInteger } from './helpers.js'
 
@@ -53,19 +52,6 @@ export class CSVRange {
   get firstRow(): number {
     return this.#firstRow
   }
-
-  // /**
-  //  * Get the row number and last byte of row before the range
-  //  * @returns The previous row number and last byte, or undefined if this is the first range
-  //  */
-  // get previous(): { row: number, lastByte: number } | undefined {
-  //   if (this.#firstByte === 0 || this.#firstRow === 0) {
-  //     return undefined
-  //   }
-  //   const lastByte = this.#firstByte - 1
-  //   const row = this.#firstRow - 1
-  //   return { row, lastByte }
-  // }
 
   /**
    * Get the row number and first byte of the next row in the range
@@ -249,6 +235,14 @@ export class CSVCache {
   }
 
   /**
+   * Get the number of columns
+   * @returns The number of columns
+   */
+  get columnCount(): number {
+    return this.#columnNames.length
+  }
+
+  /**
    * Get the CSV newline character(s)
    * @returns The CSV newline character(s)
    */
@@ -308,6 +302,10 @@ export class CSVCache {
    * @returns The cell value, or undefined if the row is not in the cache
    */
   getCell({ row, column }: { row: number, column: number }): { value: string } | undefined {
+    checkNonNegativeInteger(column)
+    if (column >= this.columnCount) {
+      throw new Error(`Column index out of bounds: ${column}`)
+    }
     const cells = this.#getCells({ row })
     if (cells === undefined) {
       return undefined
@@ -382,8 +380,8 @@ export class CSVCache {
       }
 
       // create a new random range between previousRange and nextRange
-      const averageRowByteCount = this.#averageRowByteCount
-        ? this.#averageRowByteCount
+      const averageRowByteCount = this.averageRowByteCount
+        ? this.averageRowByteCount
         : row.byteCount // use the current row byte count if we don't have an average yet (0 or undefined)
       const firstRow = Math.max(
         Math.round(previousRange.next.row + (row.byteOffset - previousRange.next.firstByte) / averageRowByteCount),
@@ -443,14 +441,14 @@ export class CSVCache {
       }
       if (rowStart < firstRow) {
         // the first row is in this missing range
-        if (rowStart === first.row || this.#averageRowByteCount === undefined) {
+        if (rowStart === first.row || this.averageRowByteCount === undefined) {
           // if the start row is the same as the first row, we can use the first byte directly
           // Same if we cannot estimate positions
           return { firstByte: first.firstByte, isEstimate: false }
         }
         // estimate the byte position based on the average row byte count
         const margin = 2 // TODO(SL): evaluate if we need them, and if so, how many. For now: cover \r\n.
-        const delta = Math.floor((rowStart - first.row) * this.#averageRowByteCount - margin)
+        const delta = Math.floor((rowStart - first.row) * this.averageRowByteCount - margin)
         return {
           firstByte: first.firstByte + Math.max(0, delta),
           isEstimate: true,
@@ -459,55 +457,6 @@ export class CSVCache {
       // try the next missing range
       first = next
     }
-  }
-
-  /**
-   * Create a CSVCache from a remote CSV file URL
-   * @param options Options
-   * @param options.url The URL of the CSV file
-   * @param options.byteLength The byte length of the CSV file
-   * @param options.chunkSize The chunk size to use when fetching the CSV file
-   * @param options.initialRowCount The initial number of rows to fetch
-   * @returns A promise that resolves to the CSVCache
-   */
-  static async fromURL({ url, byteLength, chunkSize, initialRowCount }: { url: string, byteLength: number, chunkSize: number, initialRowCount: number }): Promise<CSVCache> {
-    checkNonNegativeInteger(byteLength)
-    checkNonNegativeInteger(chunkSize)
-    checkNonNegativeInteger(initialRowCount)
-
-    // type assertion is needed because Typescript cannot see if variable is updated in the Papa.parse step callback
-    let cache: CSVCache | undefined = undefined
-
-    // Fetch the first rows, including the header
-    for await (const result of parseURL(url, { chunkSize })) {
-      if (cache === undefined) {
-        if (isEmptyLine(result.row, { greedy: true })) {
-          continue // skip empty lines before the header
-        }
-        // first non-empty row is the header
-        cache = CSVCache.fromHeader({ header: result, byteLength })
-        continue
-      }
-      else {
-        // data row
-        cache.store({
-          // ignore empty lines
-          cells: isEmptyLine(result.row) ? undefined : result.row,
-          byteOffset: result.meta.byteOffset,
-          byteCount: result.meta.byteCount,
-        })
-      }
-      if (cache.rowCount >= initialRowCount) {
-        // enough rows for now
-        break
-      }
-    }
-
-    if (cache === undefined) {
-      throw new Error('No row found in the CSV file')
-    }
-
-    return cache
   }
 
   static fromHeader({ header, byteLength }: { header: ParseResult, byteLength: number }): CSVCache {

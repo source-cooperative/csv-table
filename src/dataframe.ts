@@ -19,6 +19,7 @@ import {
 } from 'hightable'
 
 import { CSVCache } from './cache'
+import { checkNonNegativeInteger } from './helpers.js'
 
 const defaultChunkSize = 50 * 1024 // 50 KB
 const initialRowCount = 50 // number of rows to fetch initially to estimate the average row size
@@ -43,7 +44,7 @@ export async function csvDataFrame({ url, byteLength, chunkSize }: Params): Prom
   chunkSize ??= defaultChunkSize
 
   const eventTarget = createEventTarget<DataFrameEvents>()
-  const cache = await CSVCache.fromURL({ url, byteLength, chunkSize, initialRowCount })
+  const cache = await initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRowCount })
   const averageRowByteCount = cache.averageRowByteCount
   if (averageRowByteCount === undefined || averageRowByteCount === 0) {
     throw new Error('Cannot create dataframe: not enough data to estimate number of rows')
@@ -220,4 +221,53 @@ export async function csvDataFrame({ url, byteLength, chunkSize }: Params): Prom
     fetch,
     eventTarget,
   }
+}
+
+/**
+ * Create a CSVCache from a remote CSV file URL
+ * @param options Options
+ * @param options.url The URL of the CSV file
+ * @param options.byteLength The byte length of the CSV file
+ * @param options.chunkSize The chunk size to use when fetching the CSV file
+ * @param options.initialRowCount The initial number of rows to fetch
+ * @returns A promise that resolves to the CSVCache
+ */
+async function initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRowCount }: { url: string, byteLength: number, chunkSize: number, initialRowCount: number }): Promise<CSVCache> {
+  checkNonNegativeInteger(byteLength)
+  checkNonNegativeInteger(chunkSize)
+  checkNonNegativeInteger(initialRowCount)
+
+  // type assertion is needed because Typescript cannot see if variable is updated in the Papa.parse step callback
+  let cache: CSVCache | undefined = undefined
+
+  // Fetch the first rows, including the header
+  for await (const result of parseURL(url, { chunkSize })) {
+    if (cache === undefined) {
+      if (isEmptyLine(result.row, { greedy: true })) {
+        continue // skip empty lines before the header
+      }
+      // first non-empty row is the header
+      cache = CSVCache.fromHeader({ header: result, byteLength })
+      continue
+    }
+    else {
+      // data row
+      cache.store({
+        // ignore empty lines
+        cells: isEmptyLine(result.row) ? undefined : result.row,
+        byteOffset: result.meta.byteOffset,
+        byteCount: result.meta.byteCount,
+      })
+    }
+    if (cache.rowCount >= initialRowCount) {
+      // enough rows for now
+      break
+    }
+  }
+
+  if (cache === undefined) {
+    throw new Error('No row found in the CSV file')
+  }
+
+  return cache
 }
