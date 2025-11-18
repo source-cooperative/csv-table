@@ -3,18 +3,6 @@ import { isEmptyLine, parseURL } from 'csv-range'
 
 import { formatBytes } from './helpers.js'
 
-export class Header {
-  #names: string[]
-
-  constructor(names: string[]) {
-    this.#names = names
-  }
-
-  get names() {
-    return this.#names
-  }
-}
-
 /**
  * A byte range in a CSV file, with the parsed rows
  */
@@ -138,9 +126,9 @@ export class CSVCache {
    */
   #byteLength: number
   /**
-   * The header row metadata
+   * The header row
    */
-  #header: Header
+  #header: ParseResult
   /**
    * The serial range, starting at byte 0
    */
@@ -167,12 +155,13 @@ export class CSVCache {
       throw new Error('Header exceeds byte length')
     }
     this.#byteLength = byteLength
-    this.#header = new Header(header.row)
+    this.#header = header
     this.#delimiter = header.meta.delimiter
     this.#newline = header.meta.newline
     this.#serial = new CSVRange({ firstByte: 0, firstRow: 0 })
     this.#serial.append(header, { ignore: true })
     this.#random = []
+    // TODO(SL): keep track of the errors
   }
 
   /**
@@ -180,7 +169,7 @@ export class CSVCache {
    * @returns The column names
    */
   get columnNames(): string[] {
-    return this.#header.names
+    return this.#header.row.slice()
   }
 
   /**
