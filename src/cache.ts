@@ -350,49 +350,51 @@ export class CSVCache {
 
     // loop on the ranges to find where to put the row
     for (const nextRange of [...this.#random, undefined]) {
-      if (row.byteOffset + row.byteCount > this.#byteLength) {
-        throw new Error('Cannot store the row: byte range is out of bounds')
-      }
       if (row.byteOffset < previousRange.next.firstByte) {
         throw new Error('Cannot store the row: overlap with previous range')
       }
+
+      // the row is after the next range
+      if (nextRange && row.byteOffset >= nextRange.next.firstByte) {
+        previousRange = nextRange
+        continue
+      }
+
       if (nextRange && row.byteOffset + row.byteCount > nextRange.firstByte) {
         throw new Error('Cannot store the row: overlap with next range')
       }
+
+      // append to the previous range
       if (row.byteOffset === previousRange.next.firstByte) {
-        // append to the previous range
         previousRange.append(row)
         // merge with the next range if needed
         if (nextRange && previousRange.next.firstByte === nextRange.firstByte) {
           // merge nextRange into previousRange
           this.#merge(previousRange, nextRange)
         }
+        break
       }
-      else if (nextRange && row.byteOffset + row.byteCount === nextRange.firstByte) {
-        // prepend to the next range
+
+      // prepend to the next range
+      if (nextRange && row.byteOffset + row.byteCount === nextRange.firstByte) {
         nextRange.prepend(row)
+        break
       }
-      else if (row.byteOffset < (nextRange?.firstByte ?? this.#byteLength)) {
-        // create a new random range between previousRange and nextRange
-        const averageRowByteCount = this.#averageRowByteCount
-          ? this.#averageRowByteCount
-          : row.byteCount // use the current row byte count if we don't have an average yet (0 or undefined)
-        const firstRow = Math.max(
-          Math.round(previousRange.next.row + (row.byteOffset - previousRange.next.firstByte) / averageRowByteCount),
-          previousRange.next.row + 1, // ensure at least one row gap
-        )
-        // Note that we might have a situation where firstRow overlaps with nextRange.previous.row. It will be fixed the next time we update the average row byte count.
-        const newRange = new CSVRange({ firstByte: row.byteOffset, firstRow })
-        newRange.append(row)
-        const nextIndex = nextRange ? this.#random.indexOf(nextRange) : this.#random.length
-        const insertIndex = nextIndex === -1 ? this.#random.length : nextIndex
-        this.#random.splice(insertIndex, 0, newRange)
-      }
-      else {
-        // continue to next range
-        previousRange = nextRange!
-        continue
-      }
+
+      // create a new random range between previousRange and nextRange
+      const averageRowByteCount = this.#averageRowByteCount
+        ? this.#averageRowByteCount
+        : row.byteCount // use the current row byte count if we don't have an average yet (0 or undefined)
+      const firstRow = Math.max(
+        Math.round(previousRange.next.row + (row.byteOffset - previousRange.next.firstByte) / averageRowByteCount),
+        previousRange.next.row + 1, // ensure at least one row gap
+      )
+      // Note that we might have a situation where firstRow overlaps with nextRange.previous.row. It will be fixed the next time we update the average row byte count.
+      const newRange = new CSVRange({ firstByte: row.byteOffset, firstRow })
+      newRange.append(row)
+      const nextIndex = nextRange ? this.#random.indexOf(nextRange) : this.#random.length
+      const insertIndex = nextIndex === -1 ? this.#random.length : nextIndex
+      this.#random.splice(insertIndex, 0, newRange)
       break
     }
 
