@@ -173,7 +173,11 @@ export async function csvDataFrame({ url, byteLength, chunkSize, maxCachedBytes 
         // cache the previous row
         if (lastResult) {
           const isEmpty = isEmptyLine(lastResult.row)
-          cache.store(lastResult, { ignore: isEmpty })
+          cache.store({
+            cells: isEmpty ? undefined : lastResult.row,
+            byteOffset: lastResult.meta.byteOffset,
+            byteCount: lastResult.meta.byteCount,
+          })
           if (!isEmpty) {
             eventTarget.dispatchEvent(new CustomEvent('resolve'))
           }
@@ -186,7 +190,11 @@ export async function csvDataFrame({ url, byteLength, chunkSize, maxCachedBytes 
       // cache the last row
       if (lastResult && !ignoreLastRow) {
         const isEmpty = isEmptyLine(lastResult.row)
-        cache.store(lastResult, { ignore: isEmpty })
+        cache.store({
+          cells: isEmpty ? undefined : lastResult.row,
+          byteOffset: lastResult.meta.byteOffset,
+          byteCount: lastResult.meta.byteCount,
+        })
         if (!isEmpty) {
           eventTarget.dispatchEvent(new CustomEvent('resolve'))
         }

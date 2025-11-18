@@ -3,6 +3,9 @@ import { isEmptyLine, parseURL } from 'csv-range'
 
 import { formatBytes } from './helpers.js'
 
+// TODO(SL): store the byte ranges for the rows, to be able to retrieve evicted rows later
+// TODO(SL): store the byte ranges for the lines, not only the rows?
+
 interface MissingRange {
   firstByte: number
   ignoreFirstRow: boolean
@@ -10,14 +13,14 @@ interface MissingRange {
   ignoreLastRow: boolean
   maxNumRows: number | undefined
 }
+
 /**
  * A byte range in a CSV file, with the parsed rows
  */
 export class CSVRange {
   #firstByte: number // byte position of the start of the range (excludes the ignored bytes if the range starts in the middle of a row)
   #byteCount = 0 // number of bytes in the range
-  #cachedByteCount = 0 // number of bytes actually cached in the range (excludes ignored bytes)
-  #rows: ParseResult[] = [] // sorted array of the range rows, filtering out the empty rows and the header if any
+  #rows: string[][] = [] // sorted array of the range rows, filtering out the empty rows and the header if any
   #firstRow: number // index of the first row in the range (0-based)
 
   constructor({ firstByte, firstRow }: { firstByte: number, firstRow: number }) {
@@ -42,11 +45,11 @@ export class CSVRange {
   }
 
   /**
-   * Get the number of cached bytes in the range
-   * @returns The number of cached bytes in the range
+   * Get the first byte of the range
+   * @returns The first byte of the range
    */
-  get cachedByteCount() {
-    return this.#cachedByteCount
+  get firstByte(): number {
+    return this.#firstByte
   }
 
   /**
@@ -73,43 +76,43 @@ export class CSVRange {
     }
   }
 
-  get rows(): ParseResult[] {
+  get rows(): string[][] {
     return this.#rows
   }
 
   /**
    * Append a new row into the range
-   * @param row The row to append. We assume it is after the last row (it might not be contiguous, since we might skip empty rows)
-   * @param options Options
-   * @param options.ignore If true, the row is not added to the cached rows (used for the header row and empty rows)
+   * @param row The row to append. It must be contiguous to the last row.
+   * @param row.byteOffset The byte offset of the row in the file.
+   * @param row.byteCount The number of bytes of the row.
+   * @param row.cells The cells of the row. If not provided, the row is considered ignored and not cached (i.e., empty or header).
    */
-  append(row: ParseResult, { ignore }: { ignore?: boolean } = {}) {
-    if (row.meta.byteOffset !== this.#firstByte + this.#byteCount) {
+  append(row: { byteOffset: number, byteCount: number, cells?: string[] }) {
+    if (row.byteOffset !== this.#firstByte + this.#byteCount) {
       throw new Error('Cannot append the row: it is not contiguous with the last row')
     }
-    this.#byteCount = row.meta.byteOffset + row.meta.byteCount - this.#firstByte
-    if (!ignore) {
-      this.#rows.push(row)
-      this.#cachedByteCount += row.meta.byteCount
+    this.#byteCount = row.byteOffset + row.byteCount - this.#firstByte
+    if (row.cells) {
+      this.#rows.push(row.cells)
     }
   }
 
   /**
    * Prepend a new row into the range
-   * @param row The row to prepend. We assume it is before the first row (it might not be contiguous, since we might skip empty rows)
-   * @param options Options
-   * @param options.ignore If true, the row is not added to the cached rows (used for the header row and empty rows)
+   * @param row The row to prepend. It must be contiguous to the first row.
+   * @param row.byteOffset The byte offset of the row in the file.
+   * @param row.byteCount The number of bytes of the row.
+   * @param row.cells The cells of the row. If not provided, the row is considered ignored and not cached (i.e., empty or header).
    */
-  prepend(row: ParseResult, { ignore }: { ignore?: boolean } = {}) {
-    if (row.meta.byteOffset + row.meta.byteCount !== this.#firstByte) {
+  prepend(row: { byteOffset: number, byteCount: number, cells?: string[] }): void {
+    if (row.byteOffset + row.byteCount !== this.#firstByte) {
       throw new Error('Cannot prepend the row: it is not contiguous with the first row')
     }
-    this.#firstByte = row.meta.byteOffset
-    this.#byteCount += row.meta.byteCount
-    if (!ignore) {
+    this.#firstByte = row.byteOffset
+    this.#byteCount += row.byteCount
+    if (row.cells) {
       this.#firstRow -= 1
-      this.#rows.unshift(row)
-      this.#cachedByteCount += row.meta.byteCount
+      this.#rows.unshift(row.cells)
     }
   }
 
@@ -124,7 +127,21 @@ export class CSVRange {
     if (rowIndex < 0 || rowIndex >= this.#rows.length) {
       return undefined
     }
-    return this.#rows[rowIndex]?.row
+    return this.#rows[rowIndex]
+  }
+
+  /**
+   * Merge another CSVRange into this one. The other range must be immediately after this one.
+   * @param followingRange The range to merge
+   */
+  merge(followingRange: CSVRange): void {
+    if (this.next.firstByte !== followingRange.firstByte) {
+      throw new Error('Cannot merge ranges: not contiguous')
+    }
+    this.#byteCount += followingRange.byteCount
+    for (const row of followingRange.rows) {
+      this.#rows.push(row)
+    }
   }
 }
 
@@ -170,21 +187,11 @@ export class CSVCache {
     this.#delimiter = header.meta.delimiter
     this.#newline = header.meta.newline
     this.#serial = new CSVRange({ firstByte: 0, firstRow: 0 })
-    if (header.meta.byteOffset > 0) {
-      // there are ignored bytes before the header
-      this.#serial.append({
-        row: [],
-        errors: [],
-        meta: {
-          byteOffset: 0,
-          byteCount: header.meta.byteOffset,
-          charCount: 0,
-          delimiter: header.meta.delimiter,
-          newline: header.meta.newline,
-        },
-      }, { ignore: true })
-    }
-    this.#serial.append(header, { ignore: true })
+    // Account for the header row and previous ignored rows if any
+    this.#serial.append({
+      byteOffset: 0,
+      byteCount: header.meta.byteCount,
+    })
     this.#random = []
     // TODO(SL): keep track of the errors
   }
@@ -308,46 +315,47 @@ export class CSVCache {
   /**
    * Store a new row
    * @param row The row to store.
-   * @param options Options
-   * @param options.ignore If true, the row is not added to the cached rows (used for empty rows)
+   * @param row.byteOffset The byte offset of the row in the file.
+   * @param row.byteCount The number of bytes of the row.
+   * @param row.cells The cells of the row. If not provided, the row is considered ignored and not cached (i.e., empty or header).
    */
-  store(row: ParseResult, { ignore }: { ignore?: boolean } = {}): void {
+  store(row: { byteOffset: number, byteCount: number, cells?: string[] }): void {
     // TODO(SL): add tests!
     let previousRange = this.#serial
 
     // loop on the ranges to find where to put the row
     for (const nextRange of [...this.#random, undefined]) {
-      if (row.meta.byteOffset < previousRange.next.firstByte) {
+      if (row.byteOffset < previousRange.next.firstByte) {
         throw new Error('Cannot cache the row: overlap with existing range')
       }
-      if (row.meta.byteOffset + row.meta.byteCount > (nextRange?.previous?.lastByte ?? this.#byteLength - 1)) {
+      if (row.byteOffset + row.byteCount > (nextRange?.previous?.lastByte ?? this.#byteLength - 1)) {
         throw new Error('Cannot cache the row: overlap with existing range')
       }
-      if (row.meta.byteOffset === previousRange.next.firstByte) {
+      if (row.byteOffset === previousRange.next.firstByte) {
         // append to the previous range
-        previousRange.append(row, { ignore })
+        previousRange.append(row)
         // merge with the next range if needed
         if (nextRange && previousRange.next.firstByte - 1 === (nextRange.previous?.lastByte ?? Infinity)) {
           // merge nextRange into previousRange
           this.#merge(previousRange, nextRange)
         }
       }
-      else if (nextRange && row.meta.byteOffset + row.meta.byteCount === (nextRange.previous?.lastByte ?? Infinity) + 1) {
+      else if (nextRange && row.byteOffset + row.byteCount === (nextRange.previous?.lastByte ?? Infinity) + 1) {
         // prepend to the next range
-        nextRange.prepend(row, { ignore })
+        nextRange.prepend(row)
       }
-      else if (row.meta.byteOffset < (nextRange?.previous?.lastByte ?? this.#byteLength - 1) + 1) {
+      else if (row.byteOffset < (nextRange?.previous?.lastByte ?? this.#byteLength - 1) + 1) {
         // create a new random range between previousRange and nextRange
         if (this.#averageRowByteCount === undefined || this.#averageRowByteCount === 0) {
           throw new Error('Cannot insert new range: average row byte count is undefined or zero')
         }
         const firstRow = Math.min(
-          Math.round(previousRange.next.row + (row.meta.byteOffset - previousRange.next.firstByte) / this.#averageRowByteCount),
+          Math.round(previousRange.next.row + (row.byteOffset - previousRange.next.firstByte) / this.#averageRowByteCount),
           previousRange.next.row + 1, // ensure at least one row gap
         )
         // Note that we might have a situation where firstRow overlaps with nextRange.previous.row. It will be fixed the next time we update the average row byte count.
-        const newRange = new CSVRange({ firstByte: row.meta.byteOffset, firstRow })
-        newRange.append(row, { ignore })
+        const newRange = new CSVRange({ firstByte: row.byteOffset, firstRow })
+        newRange.append(row)
         const nextIndex = nextRange ? this.#random.indexOf(nextRange) : this.#random.length
         const insertIndex = nextIndex === -1 ? this.#random.length : nextIndex
         this.#random.splice(insertIndex, 0, newRange)
@@ -367,16 +375,11 @@ export class CSVCache {
    * @param followingRange The second range, must be immediately after the first range. It is a random range.
    */
   #merge(range: CSVRange, followingRange: CSVRange): void {
-    if (range.next.firstByte !== (followingRange.previous?.lastByte ?? Infinity) + 1) {
-      throw new Error('Cannot merge ranges: not contiguous')
-    }
     const index = this.#random.indexOf(followingRange)
     if (index === -1) {
       throw new Error('Cannot merge ranges: following range not found in cache')
     }
-    for (const row of followingRange.rows) {
-      range.append(row)
-    }
+    range.merge(followingRange)
     // remove followingRange from the random ranges
     this.#random.splice(index, 1)
   }
@@ -457,7 +460,12 @@ export class CSVCache {
       }
       else {
         // data row
-        cache.store(result, { ignore: isEmptyLine(result.row) })
+        cache.store({
+          // ignore empty lines
+          cells: isEmptyLine(result.row) ? undefined : result.row,
+          byteOffset: result.meta.byteOffset,
+          byteCount: result.meta.byteCount,
+        })
       }
       if (cache.rowCount >= initialRowCount) {
         // enough rows for now
