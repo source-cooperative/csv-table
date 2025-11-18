@@ -347,7 +347,7 @@ export class CSVCache {
     let previousRange = this.#serial
 
     // loop on the ranges to find where to put the row
-    for (const nextRange of [...this.#random, undefined]) {
+    for (const [i, nextRange] of [...this.#random, undefined].entries()) {
       if (row.byteOffset < previousRange.next.firstByte) {
         throw new Error('Cannot store the row: overlap with previous range')
       }
@@ -390,9 +390,7 @@ export class CSVCache {
       // Note that we might have a situation where firstRow overlaps with nextRange.previous.row. It will be fixed the next time we update the average row byte count.
       const newRange = new CSVRange({ firstByte: row.byteOffset, firstRow })
       newRange.append(row)
-      const nextIndex = nextRange ? this.#random.indexOf(nextRange) : this.#random.length
-      const insertIndex = nextIndex === -1 ? this.#random.length : nextIndex
-      this.#random.splice(insertIndex, 0, newRange)
+      this.#random.splice(i, 0, newRange)
       break
     }
 

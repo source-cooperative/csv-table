@@ -397,6 +397,31 @@ describe('CSVCache', () => {
         byteCount: 10,
       })
     })
+
+    it('should create a random range between existing ones if there is space', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 300,
+        initialByteCount: 0,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store first row to create first random range
+      cache.store({
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      // Store third row to create second random range
+      cache.store({
+        byteOffset: 50,
+        byteCount: 10,
+      })
+      // Now store the second row in between
+      cache.store({
+        byteOffset: 30,
+        byteCount: 10,
+      })
+    })
   })
 
   describe('getCell', () => {
