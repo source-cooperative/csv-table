@@ -1,18 +1,11 @@
 import type { Newline, ParseResult } from 'csv-range'
 import { isEmptyLine, parseURL } from 'csv-range'
 
-import { formatBytes } from './helpers.js'
+import { checkNonNegativeInteger } from './helpers.js'
 
 // TODO(SL): store the byte ranges for the rows, to be able to retrieve evicted rows later
 // TODO(SL): store the byte ranges for the lines, not only the rows?
-
-interface MissingRange {
-  firstByte: number
-  ignoreFirstRow: boolean
-  lastByte: number
-  ignoreLastRow: boolean
-  maxNumRows: number | undefined
-}
+// TODO(SL): keep track of the errors
 
 /**
  * A byte range in a CSV file, with the parsed rows
@@ -20,12 +13,13 @@ interface MissingRange {
 export class CSVRange {
   #firstByte: number // byte position of the start of the range (excludes the ignored bytes if the range starts in the middle of a row)
   #byteCount = 0 // number of bytes in the range
+  #rowByteCount = 0 // number of bytes in the range's rows (excludes ignored bytes)
   #rows: string[][] = [] // sorted array of the range rows, filtering out the empty rows and the header if any
   #firstRow: number // index of the first row in the range (0-based)
 
   constructor({ firstByte, firstRow }: { firstByte: number, firstRow: number }) {
-    this.#firstByte = firstByte
-    this.#firstRow = firstRow
+    this.#firstByte = checkNonNegativeInteger(firstByte)
+    this.#firstRow = checkNonNegativeInteger(firstRow)
   }
 
   /*
@@ -53,17 +47,25 @@ export class CSVRange {
   }
 
   /**
-   * Get the row number and last byte of row before the range
-   * @returns The previous row number and last byte, or undefined if this is the first range
+   * Get the first row number of the range
+   * @returns The first row number of the range
    */
-  get previous(): { row: number, lastByte: number } | undefined {
-    if (this.#firstByte === 0 || this.#firstRow === 0) {
-      return undefined
-    }
-    const lastByte = this.#firstByte - 1
-    const row = this.#firstRow - 1
-    return { row, lastByte }
+  get firstRow(): number {
+    return this.#firstRow
   }
+
+  // /**
+  //  * Get the row number and last byte of row before the range
+  //  * @returns The previous row number and last byte, or undefined if this is the first range
+  //  */
+  // get previous(): { row: number, lastByte: number } | undefined {
+  //   if (this.#firstByte === 0 || this.#firstRow === 0) {
+  //     return undefined
+  //   }
+  //   const lastByte = this.#firstByte - 1
+  //   const row = this.#firstRow - 1
+  //   return { row, lastByte }
+  // }
 
   /**
    * Get the row number and first byte of the next row in the range
@@ -76,8 +78,20 @@ export class CSVRange {
     }
   }
 
+  /**
+   * Get the rows in the range
+   * @returns The rows in the range
+   */
   get rows(): string[][] {
     return this.#rows
+  }
+
+  /**
+   * Get the number of bytes covered by the rows in the range
+   * @returns The number of bytes in the range's rows
+   */
+  get rowByteCount(): number {
+    return this.#rowByteCount
   }
 
   /**
@@ -88,12 +102,15 @@ export class CSVRange {
    * @param row.cells The cells of the row. If not provided, the row is considered ignored and not cached (i.e., empty or header).
    */
   append(row: { byteOffset: number, byteCount: number, cells?: string[] }) {
+    checkNonNegativeInteger(row.byteOffset)
+    checkNonNegativeInteger(row.byteCount)
     if (row.byteOffset !== this.#firstByte + this.#byteCount) {
       throw new Error('Cannot append the row: it is not contiguous with the last row')
     }
     this.#byteCount = row.byteOffset + row.byteCount - this.#firstByte
     if (row.cells) {
-      this.#rows.push(row.cells)
+      this.#rows.push(row.cells.slice())
+      this.#rowByteCount += row.byteCount
     }
   }
 
@@ -105,6 +122,8 @@ export class CSVRange {
    * @param row.cells The cells of the row. If not provided, the row is considered ignored and not cached (i.e., empty or header).
    */
   prepend(row: { byteOffset: number, byteCount: number, cells?: string[] }): void {
+    checkNonNegativeInteger(row.byteOffset)
+    checkNonNegativeInteger(row.byteCount)
     if (row.byteOffset + row.byteCount !== this.#firstByte) {
       throw new Error('Cannot prepend the row: it is not contiguous with the first row')
     }
@@ -112,7 +131,8 @@ export class CSVRange {
     this.#byteCount += row.byteCount
     if (row.cells) {
       this.#firstRow -= 1
-      this.#rows.unshift(row.cells)
+      this.#rows.unshift(row.cells.slice())
+      this.#rowByteCount += row.byteCount
     }
   }
 
@@ -123,6 +143,7 @@ export class CSVRange {
    * @returns The cells of the row, or undefined if the row is not in this range
    */
   getCells({ row }: { row: number }): string[] | undefined {
+    checkNonNegativeInteger(row)
     const rowIndex = row - this.#firstRow
     if (rowIndex < 0 || rowIndex >= this.#rows.length) {
       return undefined
@@ -154,9 +175,9 @@ export class CSVCache {
    */
   #byteLength: number
   /**
-   * The header row
+   * The column names
    */
-  #header: ParseResult
+  #columnNames: string[]
   /**
    * The serial range, starting at byte 0
    */
@@ -178,22 +199,29 @@ export class CSVCache {
    */
   #averageRowByteCount: number | undefined = undefined
 
-  constructor({ header, byteLength }: { header: ParseResult, byteLength: number }) {
-    if (header.meta.byteOffset + header.meta.byteCount > byteLength) {
-      throw new Error('Header exceeds byte length')
+  constructor({ columnNames, initialByteCount, byteLength, delimiter, newline }: { columnNames: string[], initialByteCount?: number, byteLength: number, delimiter: string, newline: Newline }) {
+    initialByteCount ??= 0
+    checkNonNegativeInteger(initialByteCount)
+    checkNonNegativeInteger(byteLength)
+    if (columnNames.length === 0) {
+      throw new Error('Cannot create CSVCache: no column names provided')
+    }
+    if (initialByteCount > byteLength) {
+      throw new Error('Initial byte count exceeds byte length')
     }
     this.#byteLength = byteLength
-    this.#header = header
-    this.#delimiter = header.meta.delimiter
-    this.#newline = header.meta.newline
+    this.#columnNames = columnNames.slice()
+    this.#delimiter = delimiter
+    this.#newline = newline
     this.#serial = new CSVRange({ firstByte: 0, firstRow: 0 })
     // Account for the header row and previous ignored rows if any
     this.#serial.append({
       byteOffset: 0,
-      byteCount: header.meta.byteCount,
+      byteCount: initialByteCount,
     })
     this.#random = []
-    // TODO(SL): keep track of the errors
+
+    this.#updateAverageRowByteCount()
   }
 
   /**
@@ -201,7 +229,7 @@ export class CSVCache {
    * @returns The column names
    */
   get columnNames(): string[] {
-    return this.#header.row.slice()
+    return this.#columnNames.slice()
   }
 
   /**
@@ -231,32 +259,24 @@ export class CSVCache {
   /**
    * Update the average row byte count based on the cached rows
    */
-  updateAverageRowByteCount(): void {
+  #updateAverageRowByteCount(): void {
     // TODO(SL): after updating the average, we could try to re-assign row numbers in the random ranges to reduce overlaps
-    const totalBytes = this.#serial.byteCount + this.#random.reduce((sum, range) => sum + range.byteCount, 0)
-    const totalRows = this.#serial.rowCount + this.#random.reduce((sum, range) => sum + range.rowCount, 0)
-    if (totalRows === 0) {
+    const rowByteCount = this.#serial.rowByteCount + this.#random.reduce((sum, range) => sum + range.rowByteCount, 0)
+    const rowCount = this.#serial.rowCount + this.#random.reduce((sum, range) => sum + range.rowCount, 0)
+    if (rowCount === 0) {
       this.#averageRowByteCount = undefined
+      return
     }
-    const averageRowBytes = totalBytes / totalRows
-    this.#averageRowByteCount = averageRowBytes
+    const averageRowByteCount = rowByteCount / rowCount
+    this.#averageRowByteCount = averageRowByteCount
   }
 
-  /**
-   * Estimate the number of rows in the CSV file
-   * @returns An object containing the estimated number of rows and a boolean indicating if it's an estimate
-   */
-  estimateNumRows(): { numRows: number, isEstimate: boolean } {
-    if (this.#serial.byteCount === this.#byteLength) {
-      return { numRows: this.#serial.rowCount, isEstimate: false }
-    }
-    if (this.#averageRowByteCount === undefined) {
-      throw new Error('Cannot estimate number of rows: average row byte count is undefined')
-    }
-    if (this.#averageRowByteCount === 0) {
-      throw new Error('Cannot estimate number of rows: average row byte count is zero')
-    }
-    return { numRows: Math.floor(this.#byteLength / this.#averageRowByteCount), isEstimate: true }
+  get averageRowByteCount(): number | undefined {
+    return this.#averageRowByteCount
+  }
+
+  get allRowsCached(): boolean {
+    return this.#serial.next.firstByte >= this.#byteLength
   }
 
   /**
@@ -320,37 +340,45 @@ export class CSVCache {
    * @param row.cells The cells of the row. If not provided, the row is considered ignored and not cached (i.e., empty or header).
    */
   store(row: { byteOffset: number, byteCount: number, cells?: string[] }): void {
-    // TODO(SL): add tests!
+    checkNonNegativeInteger(row.byteOffset)
+    checkNonNegativeInteger(row.byteCount)
+    if (row.byteOffset + row.byteCount > this.#byteLength) {
+      throw new Error('Cannot store the row: byte range is out of bounds')
+    }
+
     let previousRange = this.#serial
 
     // loop on the ranges to find where to put the row
     for (const nextRange of [...this.#random, undefined]) {
-      if (row.byteOffset < previousRange.next.firstByte) {
-        throw new Error('Cannot cache the row: overlap with existing range')
+      if (row.byteOffset + row.byteCount > this.#byteLength) {
+        throw new Error('Cannot store the row: byte range is out of bounds')
       }
-      if (row.byteOffset + row.byteCount > (nextRange?.previous?.lastByte ?? this.#byteLength - 1)) {
-        throw new Error('Cannot cache the row: overlap with existing range')
+      if (row.byteOffset < previousRange.next.firstByte) {
+        throw new Error('Cannot store the row: overlap with previous range')
+      }
+      if (nextRange && row.byteOffset + row.byteCount > nextRange.firstByte) {
+        throw new Error('Cannot store the row: overlap with next range')
       }
       if (row.byteOffset === previousRange.next.firstByte) {
         // append to the previous range
         previousRange.append(row)
         // merge with the next range if needed
-        if (nextRange && previousRange.next.firstByte - 1 === (nextRange.previous?.lastByte ?? Infinity)) {
+        if (nextRange && previousRange.next.firstByte === nextRange.firstByte) {
           // merge nextRange into previousRange
           this.#merge(previousRange, nextRange)
         }
       }
-      else if (nextRange && row.byteOffset + row.byteCount === (nextRange.previous?.lastByte ?? Infinity) + 1) {
+      else if (nextRange && row.byteOffset + row.byteCount === nextRange.firstByte) {
         // prepend to the next range
         nextRange.prepend(row)
       }
-      else if (row.byteOffset < (nextRange?.previous?.lastByte ?? this.#byteLength - 1) + 1) {
+      else if (row.byteOffset < (nextRange?.firstByte ?? this.#byteLength)) {
         // create a new random range between previousRange and nextRange
-        if (this.#averageRowByteCount === undefined || this.#averageRowByteCount === 0) {
-          throw new Error('Cannot insert new range: average row byte count is undefined or zero')
-        }
-        const firstRow = Math.min(
-          Math.round(previousRange.next.row + (row.byteOffset - previousRange.next.firstByte) / this.#averageRowByteCount),
+        const averageRowByteCount = this.#averageRowByteCount
+          ? this.#averageRowByteCount
+          : row.byteCount // use the current row byte count if we don't have an average yet (0 or undefined)
+        const firstRow = Math.max(
+          Math.round(previousRange.next.row + (row.byteOffset - previousRange.next.firstByte) / averageRowByteCount),
           previousRange.next.row + 1, // ensure at least one row gap
         )
         // Note that we might have a situation where firstRow overlaps with nextRange.previous.row. It will be fixed the next time we update the average row byte count.
@@ -367,6 +395,10 @@ export class CSVCache {
       }
       break
     }
+
+    // Update the average row byte count and possibly re-assign row numbers
+    this.#updateAverageRowByteCount()
+    // TODO(SL): re-assign row numbers in random ranges to reduce overlaps
   }
 
   /**
@@ -385,47 +417,45 @@ export class CSVCache {
   }
 
   /**
-   * Get the missing byte ranges for the given row range
+   * Get the next missing row for the given row range
    * @param options Options
    * @param options.rowStart The start row index (0-based, inclusive)
    * @param options.rowEnd The end row index (0-based, exclusive)
-   * @returns An array of byte ranges to fetch
+   * @returns The first byte of the next missing row and if it's an estimate, or undefined if no missing row
    */
-  getMissingRowRanges({ rowStart, rowEnd }: { rowStart: number, rowEnd: number }): MissingRange[] {
-    const missingRanges: MissingRange[] = []
+  getNextMissingRow({ rowStart, rowEnd }: { rowStart: number, rowEnd: number }): { firstByte: number, isEstimate: boolean } | undefined {
+    checkNonNegativeInteger(rowStart)
+    checkNonNegativeInteger(rowEnd)
 
-    // try every empty range between known rows
+    // try every empty range between cached rows
     let first = this.#serial.next
-    for (const { previous: last, next } of [...this.#random, { previous: { row: Infinity, lastByte: this.#byteLength - 1 }, next: { row: Infinity, firstByte: this.#byteLength } }]) {
-      if (last === undefined) {
-        // only the serial range should have no previous range
-        throw new Error('Invalid range: missing previous range')
+    for (const { firstRow, next } of [...this.#random, { firstRow: Infinity, next: { row: Infinity, firstByte: this.#byteLength } }]) {
+      if (rowStart < first.row) {
+        // ignore cached rows
+        rowStart = first.row
       }
-      rowStart = Math.max(rowStart, first.row)
       if (rowEnd < rowStart) {
-        // finished
-        return missingRanges
+        // no missing row
+        return
       }
-      if (rowStart <= last.row) {
-        // there is an overlap
-        const isStartContiguous = rowStart === first.row
-        const ignoreFirstRow = !isStartContiguous // if not contiguous, we need to ignore the first row, because it could be partial
-        const firstByte = isStartContiguous ? first.firstByte : first.firstByte + Math.floor((rowStart - first.row) * (this.#averageRowByteCount ?? 0))
-
-        const rangeRowEnd = Math.min(rowEnd, last.row)
-        const isEndContiguous = rangeRowEnd === last.row
-        const ignoreLastRow = !isEndContiguous && last.row !== Infinity // if not contiguous and the last byte is defined, we need to ignore the last row, because it could be partial
-        const lastByte = isEndContiguous || last.row === Infinity
-          ? last.lastByte
-          : last.lastByte - Math.floor((last.row - rangeRowEnd) * (this.#averageRowByteCount ?? 0))
-        const maxNumRows = last.row === Infinity ? rangeRowEnd - rowStart : undefined
-
-        missingRanges.push({ firstByte, ignoreFirstRow, lastByte, ignoreLastRow, maxNumRows })
+      if (rowStart < firstRow) {
+        // the first row is in this missing range
+        if (rowStart === first.row || this.#averageRowByteCount === undefined) {
+          // if the start row is the same as the first row, we can use the first byte directly
+          // Same if we cannot estimate positions
+          return { firstByte: first.firstByte, isEstimate: false }
+        }
+        // estimate the byte position based on the average row byte count
+        const margin = 2 // TODO(SL): evaluate if we need them, and if so, how many. For now: cover \r\n.
+        const delta = Math.floor((rowStart - first.row) * this.#averageRowByteCount - margin)
+        return {
+          firstByte: first.firstByte + Math.max(0, delta),
+          isEstimate: true,
+        }
       }
+      // try the next missing range
       first = next
     }
-
-    return missingRanges
   }
 
   /**
@@ -435,15 +465,12 @@ export class CSVCache {
    * @param options.byteLength The byte length of the CSV file
    * @param options.chunkSize The chunk size to use when fetching the CSV file
    * @param options.initialRowCount The initial number of rows to fetch
-   * @param options.maxCachedBytes The maximum number of bytes to cache
    * @returns A promise that resolves to the CSVCache
    */
-  static async fromURL({ url, byteLength, chunkSize, initialRowCount, maxCachedBytes }: { url: string, byteLength: number, chunkSize: number, initialRowCount: number, maxCachedBytes: number }): Promise<CSVCache> {
-    if (chunkSize > maxCachedBytes) {
-      throw new Error(
-        `chunkSize (${formatBytes(chunkSize)}) cannot be greater than maxCachedBytes (${formatBytes(maxCachedBytes)})`,
-      )
-    }
+  static async fromURL({ url, byteLength, chunkSize, initialRowCount }: { url: string, byteLength: number, chunkSize: number, initialRowCount: number }): Promise<CSVCache> {
+    checkNonNegativeInteger(byteLength)
+    checkNonNegativeInteger(chunkSize)
+    checkNonNegativeInteger(initialRowCount)
 
     // type assertion is needed because Typescript cannot see if variable is updated in the Papa.parse step callback
     let cache: CSVCache | undefined = undefined
@@ -455,7 +482,7 @@ export class CSVCache {
           continue // skip empty lines before the header
         }
         // first non-empty row is the header
-        cache = new CSVCache({ header: result, byteLength })
+        cache = CSVCache.fromHeader({ header: result, byteLength })
         continue
       }
       else {
@@ -477,8 +504,16 @@ export class CSVCache {
       throw new Error('No row found in the CSV file')
     }
 
-    cache.updateAverageRowByteCount()
-
     return cache
+  }
+
+  static fromHeader({ header, byteLength }: { header: ParseResult, byteLength: number }): CSVCache {
+    return new CSVCache({
+      columnNames: header.row,
+      byteLength,
+      delimiter: header.meta.delimiter,
+      newline: header.meta.newline,
+      initialByteCount: header.meta.byteOffset + header.meta.byteCount,
+    })
   }
 }

@@ -30,18 +30,14 @@ export async function byteLengthFromUrl(url: string, requestInit?: RequestInit, 
     })
 }
 
-const bytesFormat = new Intl.NumberFormat('en-US', {
-  style: 'unit',
-  unit: 'byte',
-  unitDisplay: 'narrow',
-  maximumFractionDigits: 0,
-})
-
 /**
- * Format bytes as a human-readable string.
- * @param bytes - The number of bytes
- * @returns The formatted string
+ * Throws if the provided value is not a non-negative integer.
+ * @param value The desired value.
+ * @returns The validated value: a non-negative integer.
  */
-export function formatBytes(bytes: number): string {
-  return bytesFormat.format(bytes)
+export function checkNonNegativeInteger(value: number): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error('Value is not a non-negative integer')
+  }
+  return value
 }

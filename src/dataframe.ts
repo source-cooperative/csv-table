@@ -3,7 +3,7 @@
 // TODO(SL): evict old rows (or only cell contents?) if needed
 // TODO(SL): handle fetching (and most importantly storing) only part of the columns?
 // Note that source.coop does not support negative ranges for now https://github.com/source-cooperative/data.source.coop/issues/57 (for https://github.com/hyparam/hightable/issues/298#issuecomment-3381567614)
-import { isEmptyLine, type ParseResult, parseURL } from 'csv-range'
+import { isEmptyLine, parseURL } from 'csv-range'
 import type {
   DataFrame,
   DataFrameEvents,
@@ -21,7 +21,6 @@ import {
 import { CSVCache } from './cache'
 
 const defaultChunkSize = 50 * 1024 // 50 KB
-const defaultMaxCachedBytes = 20 * 1024 * 1024 // 20 MB
 const initialRowCount = 50 // number of rows to fetch initially to estimate the average row size
 // const paddingRowCount = 20 // fetch a bit before and after the requested range, to avoid cutting rows
 
@@ -38,16 +37,19 @@ interface Params {
  * @param options.url - URL of the CSV file
  * @param options.byteLength - total byte length of the file
  * @param options.chunkSize - download chunk size
- * @param options.maxCachedBytes - max number of bytes to keep in cache before evicting old rows
  * @returns DataFrame representing the CSV file
  */
-export async function csvDataFrame({ url, byteLength, chunkSize, maxCachedBytes }: Params): Promise<DataFrame> {
+export async function csvDataFrame({ url, byteLength, chunkSize }: Params): Promise<DataFrame> {
   chunkSize ??= defaultChunkSize
-  maxCachedBytes ??= defaultMaxCachedBytes
 
   const eventTarget = createEventTarget<DataFrameEvents>()
-  const cache = await CSVCache.fromURL({ url, byteLength, chunkSize, initialRowCount, maxCachedBytes })
-  const { numRows } = cache.estimateNumRows()
+  const cache = await CSVCache.fromURL({ url, byteLength, chunkSize, initialRowCount })
+  const averageRowByteCount = cache.averageRowByteCount
+  if (averageRowByteCount === undefined || averageRowByteCount === 0) {
+    throw new Error('Cannot create dataframe: not enough data to estimate number of rows')
+  }
+  const numRows = cache.allRowsCached ? cache.rowCount : Math.floor(byteLength / averageRowByteCount)
+  // TODO(SL): add metadata to tell if the number of rows is an estimate or exact?
   const columnDescriptors: DataFrame['columnDescriptors'] = cache.columnNames.map(name => ({ name }))
 
   /**
@@ -148,56 +150,64 @@ export async function csvDataFrame({ url, byteLength, chunkSize, maxCachedBytes 
       },
     })
 
-    // Update to have the latest average row size
-    cache.updateAverageRowByteCount()
-    const missingRanges = cache.getMissingRowRanges({ rowStart, rowEnd })
-
-    // Fetching serially, because inserting a row can result in ranges merging/changing
-    for (const { firstByte, ignoreFirstRow, lastByte, ignoreLastRow, maxNumRows } of missingRanges) {
-      let i = -1
-      // To be able to ignore the last row, we need to buffer one row ahead
-      let lastResult: ParseResult | undefined = undefined
+    const maxLoops = (rowEnd - rowStart) + 10 // safety to avoid infinite loops
+    const fetchChunkSize = chunkSize ?? defaultChunkSize
+    let next = cache.getNextMissingRow({ rowStart, rowEnd })
+    let i = 0
+    while (next) {
+      i++
+      if (i > maxLoops) {
+        throw new Error('Maximum fetch loops exceeded')
+      }
+      const firstByte = next.firstByte
+      const ignoreFirstRow = next.isEstimate // if it's an estimate, we may be cutting a row
+      let isFirstRow = true
+      let j = 0
       for await (const result of parseURL(url, {
         delimiter: cache.delimiter,
         newline: cache.newline,
-        chunkSize,
+        chunkSize: fetchChunkSize,
         firstByte,
-        lastByte,
       })) {
-        i++
-        if (maxNumRows !== undefined && i >= maxNumRows) {
-          break
-        }
         checkSignal(signal)
-
-        // cache the previous row
-        if (lastResult) {
-          const isEmpty = isEmptyLine(lastResult.row)
-          cache.store({
-            cells: isEmpty ? undefined : lastResult.row,
-            byteOffset: lastResult.meta.byteOffset,
-            byteCount: lastResult.meta.byteCount,
-          })
-          if (!isEmpty) {
-            eventTarget.dispatchEvent(new CustomEvent('resolve'))
-          }
+        j++
+        if (j > maxLoops) {
+          throw new Error('Maximum parse loops exceeded')
         }
-        // store the current row for the next iteration
-        if (i > 0 || !ignoreFirstRow) {
-          lastResult = result
+        if (isFirstRow && ignoreFirstRow) {
+          isFirstRow = false
+          continue
         }
-      }
-      // cache the last row
-      if (lastResult && !ignoreLastRow) {
-        const isEmpty = isEmptyLine(lastResult.row)
+        if (result.meta.byteOffset < next.firstByte) {
+          // already cached
+          continue
+        }
+        const isEmpty = isEmptyLine(result.row)
         cache.store({
-          cells: isEmpty ? undefined : lastResult.row,
-          byteOffset: lastResult.meta.byteOffset,
-          byteCount: lastResult.meta.byteCount,
+          cells: isEmpty ? undefined : result.row,
+          byteOffset: result.meta.byteOffset,
+          byteCount: result.meta.byteCount,
         })
         if (!isEmpty) {
           eventTarget.dispatchEvent(new CustomEvent('resolve'))
         }
+
+        // next row
+        next = cache.getNextMissingRow({ rowStart, rowEnd })
+        if (!next) {
+          // no more missing ranges
+          break
+        }
+        const nextByte = result.meta.byteOffset + result.meta.byteCount
+        if (next.firstByte > nextByte + fetchChunkSize) {
+          // the next missing range is beyond the current chunk, so we can stop the current loop and start a new fetch
+          break
+        }
+        if (next.firstByte <= nextByte) {
+          // after storing the current row, the next missing row is estimated to be before the current cursor, so we have to stop fetching and start a new loop
+          break
+        }
+        // otherwise, continue fetching in the current loop, even if some rows are already cached
       }
     }
   }
