@@ -517,6 +517,30 @@ describe('CSVCache', () => {
       // Existing row
       expect(cache.getRowNumber({ row: 0 })).toStrictEqual({ value: 0 })
     })
+
+    it('should estimate row numbers for random ranges', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 200,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store a row to create a random range
+      cache.store({
+        cells: ['d', 'e', 'f'],
+        byteOffset: 40,
+        byteCount: 10,
+      })
+      // Store a row to create another random range
+      cache.store({
+        cells: ['d', 'e', 'f'],
+        byteOffset: 60,
+        byteCount: 10,
+      })
+      // the estimated row number for the last row should be 4
+      expect(cache.getRowNumber({ row: 5 })).toEqual({ value: 5 })
+    })
   })
 
   describe('getNextMissingRow', () => {
