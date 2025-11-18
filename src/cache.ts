@@ -77,7 +77,9 @@ export class CSVRange {
    * @param options.ignore If true, the row is not added to the cached rows (used for the header row and empty rows)
    */
   append(row: ParseResult, { ignore }: { ignore?: boolean } = {}) {
-    // TODO(SL): check that the row is after the last row
+    if (row.meta.byteOffset !== this.#firstByte + this.#byteCount) {
+      throw new Error('Cannot append the row: it is not contiguous with the last row')
+    }
     this.#byteCount = row.meta.byteOffset + row.meta.byteCount - this.#firstByte
     if (!ignore) {
       this.#rows.push(row)
@@ -92,7 +94,9 @@ export class CSVRange {
    * @param options.ignore If true, the row is not added to the cached rows (used for the header row and empty rows)
    */
   prepend(row: ParseResult, { ignore }: { ignore?: boolean } = {}) {
-    // TODO(SL): check that the row is before the first row
+    if (row.meta.byteOffset + row.meta.byteCount !== this.#firstByte) {
+      throw new Error('Cannot prepend the row: it is not contiguous with the first row')
+    }
     this.#firstByte = row.meta.byteOffset
     this.#byteCount += row.meta.byteCount
     if (!ignore) {
