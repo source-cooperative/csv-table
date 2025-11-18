@@ -410,6 +410,7 @@ export class CSVCache {
    */
   #merge(range: CSVRange, followingRange: CSVRange): void {
     const index = this.#random.indexOf(followingRange)
+    // v8 ignore if -- @preserve
     if (index === -1) {
       throw new Error('Cannot merge ranges: following range not found in cache')
     }

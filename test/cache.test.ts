@@ -117,274 +117,278 @@ describe('CSVRange', () => {
 })
 
 describe('CSVCache', () => {
-  it('should initialize correctly', () => {
-    const cache = new CSVCache({
-      columnNames: ['col1', 'col2', 'col3'],
-      byteLength: 100,
-      initialByteCount: 15,
-      delimiter: ',',
-      newline: '\n' as const,
-    })
-    expect(cache.columnNames).toEqual(['col1', 'col2', 'col3'])
-    expect(cache.rowCount).toBe(0)
-    expect(cache.delimiter).toBe(',')
-    expect(cache.newline).toBe('\n')
-    expect(cache.averageRowByteCount).toBe(undefined)
-    expect(cache.getCell({ row: 0, column: 0 })).toBeUndefined()
-    expect(cache.getRowNumber({ row: 0 })).toBeUndefined()
-    expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toEqual({ firstByte: 15, isEstimate: false })
-    // As no rows are cached, any range should return the same firstByte
-    expect(cache.getNextMissingRow({ rowStart: 100, rowEnd: 200 })).toEqual({ firstByte: 15, isEstimate: false })
-  })
-
-  it('should initialize from header correctly', () => {
-    const header = {
-      row: ['col1', 'col2', 'col3'],
-      errors: [],
-      meta: {
-        byteOffset: 0,
-        byteCount: 15,
-        charCount: 14,
-        delimiter: ',',
-        newline: '\n' as const,
-      },
-    }
-    const cache = CSVCache.fromHeader({ header, byteLength: 100 })
-    expect(cache.columnNames).toEqual(['col1', 'col2', 'col3'])
-    expect(cache.rowCount).toBe(0)
-    expect(cache.delimiter).toBe(',')
-    expect(cache.newline).toBe('\n')
-    expect(cache.averageRowByteCount).toBe(undefined)
-    expect(cache.getCell({ row: 0, column: 0 })).toBeUndefined()
-    expect(cache.getRowNumber({ row: 0 })).toBeUndefined()
-    expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toEqual({ firstByte: 15, isEstimate: false })
-    // As no rows are cached, any range should return the same firstByte
-    expect(cache.getNextMissingRow({ rowStart: 100, rowEnd: 200 })).toEqual({ firstByte: 15, isEstimate: false })
-  })
-
-  it.each([
-    { columnNames: [] },
-    { initialByteCount: 200 },
-  ])('throws when initializing from invalid options: %o', (options) => {
-    expect(() => {
-      new CSVCache({
-        columnNames: options.columnNames ?? ['a', 'b', 'c'],
+  describe('constructor', () => {
+    it('should initialize correctly', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: options.initialByteCount ?? 15,
+        initialByteCount: 15,
         delimiter: ',',
         newline: '\n' as const,
       })
-    }).toThrow()
+      expect(cache.columnNames).toEqual(['col1', 'col2', 'col3'])
+      expect(cache.rowCount).toBe(0)
+      expect(cache.delimiter).toBe(',')
+      expect(cache.newline).toBe('\n')
+      expect(cache.averageRowByteCount).toBe(undefined)
+      expect(cache.getCell({ row: 0, column: 0 })).toBeUndefined()
+      expect(cache.getRowNumber({ row: 0 })).toBeUndefined()
+      expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toEqual({ firstByte: 15, isEstimate: false })
+      // As no rows are cached, any range should return the same firstByte
+      expect(cache.getNextMissingRow({ rowStart: 100, rowEnd: 200 })).toEqual({ firstByte: 15, isEstimate: false })
+    })
+
+    it('should initialize from header correctly', () => {
+      const header = {
+        row: ['col1', 'col2', 'col3'],
+        errors: [],
+        meta: {
+          byteOffset: 0,
+          byteCount: 15,
+          charCount: 14,
+          delimiter: ',',
+          newline: '\n' as const,
+        },
+      }
+      const cache = CSVCache.fromHeader({ header, byteLength: 100 })
+      expect(cache.columnNames).toEqual(['col1', 'col2', 'col3'])
+      expect(cache.rowCount).toBe(0)
+      expect(cache.delimiter).toBe(',')
+      expect(cache.newline).toBe('\n')
+      expect(cache.averageRowByteCount).toBe(undefined)
+      expect(cache.getCell({ row: 0, column: 0 })).toBeUndefined()
+      expect(cache.getRowNumber({ row: 0 })).toBeUndefined()
+      expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toEqual({ firstByte: 15, isEstimate: false })
+      // As no rows are cached, any range should return the same firstByte
+      expect(cache.getNextMissingRow({ rowStart: 100, rowEnd: 200 })).toEqual({ firstByte: 15, isEstimate: false })
+    })
+
+    it.each([
+      { columnNames: [] },
+      { initialByteCount: 200 },
+    ])('throws when initializing from invalid options: %o', (options) => {
+      expect(() => {
+        new CSVCache({
+          columnNames: options.columnNames ?? ['a', 'b', 'c'],
+          byteLength: 100,
+          initialByteCount: options.initialByteCount ?? 15,
+          delimiter: ',',
+          newline: '\n' as const,
+        })
+      }).toThrow()
+    })
   })
 
-  it('should store and retrieve rows correctly', () => {
-    const cache = new CSVCache({
-      columnNames: ['col1', 'col2', 'col3'],
-      byteLength: 100,
-      initialByteCount: 15,
-      delimiter: ',',
-      newline: '\n' as const,
-    })
-    // should be row 0
-    cache.store({
-      cells: ['a', 'b', 'c'],
-      byteOffset: 15,
-      byteCount: 0, // not forbidden
-    })
-    // The average row byte count should be 0
-    expect(cache.averageRowByteCount).toBe(0)
-    // should be row 1
-    cache.store({
-      cells: ['d', 'e', 'f'],
-      byteOffset: 15,
-      byteCount: 20,
-    })
-    // The average row byte count should be 10 now
-    expect(cache.averageRowByteCount).toBe(10)
-    // the first row must be retrieved correctly
-    expect(cache.getCell({ row: 0, column: 0 })).toStrictEqual({ value: 'a' })
-    expect(cache.getCell({ row: 0, column: 1 })).toStrictEqual({ value: 'b' })
-    expect(cache.getCell({ row: 0, column: 2 })).toStrictEqual({ value: 'c' })
-    expect(cache.getRowNumber({ row: 0 })).toStrictEqual({ value: 0 })
-    // the second row must be retrieved correctly
-    expect(cache.getCell({ row: 1, column: 0 })).toStrictEqual({ value: 'd' })
-    expect(cache.getCell({ row: 1, column: 1 })).toStrictEqual({ value: 'e' })
-    expect(cache.getCell({ row: 1, column: 2 })).toStrictEqual({ value: 'f' })
-    expect(cache.getRowNumber({ row: 1 })).toStrictEqual({ value: 1 })
-
-    // This row should be in a new random range, and the estimated row number should be 3
-    cache.store({
-      cells: ['d', 'e', 'f'],
-      byteOffset: 44,
-      byteCount: 7,
-    })
-    // the average row byte count should be 9 now
-    expect(cache.averageRowByteCount).toBe(9)
-    // it should be retrieved correctly with row: 2
-    expect(cache.getCell({ row: 3, column: 0 })).toStrictEqual({ value: 'd' })
-    expect(cache.getCell({ row: 3, column: 1 })).toStrictEqual({ value: 'e' })
-    expect(cache.getCell({ row: 3, column: 2 })).toStrictEqual({ value: 'f' })
-    expect(cache.getRowNumber({ row: 3 })).toStrictEqual({ value: 3 })
-  })
-
-  it('should report if all the rows are cached', () => {
-    const cache = new CSVCache({
-      columnNames: ['col1', 'col2', 'col3'],
-      byteLength: 100,
-      initialByteCount: 10,
-      delimiter: ',',
-      newline: '\n' as const,
-    })
-    expect(cache.allRowsCached).toBe(false)
-    // Cache some rows
-    cache.store({
-      cells: ['a', 'b', 'c'],
-      byteOffset: 10,
-      byteCount: 10,
-    })
-    cache.store({
-      cells: ['d', 'e', 'f'],
-      byteOffset: 20,
-      byteCount: 10,
-    })
-    expect(cache.allRowsCached).toBe(false)
-    // Simulate caching all rows by adjusting byteLength and storing a row at the end
-    cache.store({
-      cells: ['x', 'y', 'z'],
-      byteOffset: 30,
-      byteCount: 70,
-    })
-    expect(cache.allRowsCached).toBe(true)
-  })
-
-  it.each([
-    { byteOffset: -10, byteCount: 10 },
-    { byteOffset: 10, byteCount: -10 },
-    { byteOffset: 100, byteCount: 60 },
-    { byteOffset: 95, byteCount: 10 },
-  ])('throws if trying to store a row outside of the cache bounds: %o', ({ byteOffset, byteCount }) => {
-    const cache = new CSVCache({
-      columnNames: ['col1', 'col2', 'col3'],
-      byteLength: 100,
-      initialByteCount: 10,
-      delimiter: ',',
-      newline: '\n' as const,
-    })
-    expect(() => {
+  describe('store and retrieve rows', () => {
+    it('should store and retrieve rows correctly', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 15,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // should be row 0
       cache.store({
         cells: ['a', 'b', 'c'],
-        byteOffset,
-        byteCount,
+        byteOffset: 15,
+        byteCount: 0, // not forbidden
       })
-    }).toThrow()
-  })
+      // The average row byte count should be 0
+      expect(cache.averageRowByteCount).toBe(0)
+      // should be row 1
+      cache.store({
+        cells: ['d', 'e', 'f'],
+        byteOffset: 15,
+        byteCount: 20,
+      })
+      // The average row byte count should be 10 now
+      expect(cache.averageRowByteCount).toBe(10)
+      // the first row must be retrieved correctly
+      expect(cache.getCell({ row: 0, column: 0 })).toStrictEqual({ value: 'a' })
+      expect(cache.getCell({ row: 0, column: 1 })).toStrictEqual({ value: 'b' })
+      expect(cache.getCell({ row: 0, column: 2 })).toStrictEqual({ value: 'c' })
+      expect(cache.getRowNumber({ row: 0 })).toStrictEqual({ value: 0 })
+      // the second row must be retrieved correctly
+      expect(cache.getCell({ row: 1, column: 0 })).toStrictEqual({ value: 'd' })
+      expect(cache.getCell({ row: 1, column: 1 })).toStrictEqual({ value: 'e' })
+      expect(cache.getCell({ row: 1, column: 2 })).toStrictEqual({ value: 'f' })
+      expect(cache.getRowNumber({ row: 1 })).toStrictEqual({ value: 1 })
 
-  it.each([
-    { initialRow: { byteOffset: 10, byteCount: 10 }, row: { byteOffset: 5, byteCount: 10 }, expected: 'Cannot store the row: overlap with previous range' },
-    { initialRow: { byteOffset: 20, byteCount: 10 }, row: { byteOffset: 5, byteCount: 10 }, expected: 'Cannot store the row: overlap with previous range' },
-    { initialRow: { byteOffset: 10, byteCount: 10 }, row: { byteOffset: 15, byteCount: 10 }, expected: 'Cannot store the row: overlap with previous range' },
-    { initialRow: { byteOffset: 20, byteCount: 10 }, row: { byteOffset: 15, byteCount: 10 }, expected: 'Cannot store the row: overlap with next range' },
-    { initialRow: { byteOffset: 20, byteCount: 10 }, row: { byteOffset: 25, byteCount: 10 }, expected: 'Cannot store the row: overlap with next range' },
-  ])('throws when storing rows that overlap existing cached rows: %o', ({ initialRow, row, expected }) => {
-    const cache = new CSVCache({
-      columnNames: ['col1', 'col2', 'col3'],
-      byteLength: 200,
-      initialByteCount: 10,
-      delimiter: ',',
-      newline: '\n' as const,
+      // This row should be in a new random range, and the estimated row number should be 3
+      cache.store({
+        cells: ['d', 'e', 'f'],
+        byteOffset: 44,
+        byteCount: 7,
+      })
+      // the average row byte count should be 9 now
+      expect(cache.averageRowByteCount).toBe(9)
+      // it should be retrieved correctly with row: 2
+      expect(cache.getCell({ row: 3, column: 0 })).toStrictEqual({ value: 'd' })
+      expect(cache.getCell({ row: 3, column: 1 })).toStrictEqual({ value: 'e' })
+      expect(cache.getCell({ row: 3, column: 2 })).toStrictEqual({ value: 'f' })
+      expect(cache.getRowNumber({ row: 3 })).toStrictEqual({ value: 3 })
     })
-    // Store an initial row
-    cache.store(initialRow)
-    expect(() => {
-      cache.store(row)
-    }).toThrow(expected)
-  })
 
-  it('shoud merge two adjacent ranges when storing rows', () => {
-    const cache = new CSVCache({
-      columnNames: ['col1', 'col2', 'col3'],
-      byteLength: 100,
-      initialByteCount: 10,
-      delimiter: ',',
-      newline: '\n' as const,
+    it('should report if all the rows are cached', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      expect(cache.allRowsCached).toBe(false)
+      // Cache some rows
+      cache.store({
+        cells: ['a', 'b', 'c'],
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      cache.store({
+        cells: ['d', 'e', 'f'],
+        byteOffset: 20,
+        byteCount: 10,
+      })
+      expect(cache.allRowsCached).toBe(false)
+      // Simulate caching all rows by adjusting byteLength and storing a row at the end
+      cache.store({
+        cells: ['x', 'y', 'z'],
+        byteOffset: 30,
+        byteCount: 70,
+      })
+      expect(cache.allRowsCached).toBe(true)
     })
-    // Store first row
-    cache.store({
-      cells: ['a', 'b', 'c'],
-      byteOffset: 10,
-      byteCount: 10,
-    })
-    // Store third row, creating a new random range
-    cache.store({
-      cells: ['e', 'f', 'g'],
-      byteOffset: 40,
-      byteCount: 60,
-    })
-    // At this point, we should have two ranges, and not all the rows have been cached
-    expect(cache.allRowsCached).toBe(false)
-    expect(cache.rowCount).toBe(2)
-    // Now store the second row, which should merge the two ranges
-    cache.store({
-      cells: ['d', 'e', 'f'],
-      byteOffset: 20,
-      byteCount: 20,
-    })
-    // now, the cache should include all the rows
-    expect(cache.allRowsCached).toBe(true)
-    expect(cache.rowCount).toBe(3)
-  })
 
-  it('should prepend rows to a random range correctly', () => {
-    const cache = new CSVCache({
-      columnNames: ['col1', 'col2', 'col3'],
-      byteLength: 100,
-      initialByteCount: 10,
-      delimiter: ',',
-      newline: '\n' as const,
+    it.each([
+      { byteOffset: -10, byteCount: 10 },
+      { byteOffset: 10, byteCount: -10 },
+      { byteOffset: 100, byteCount: 60 },
+      { byteOffset: 95, byteCount: 10 },
+    ])('throws if trying to store a row outside of the cache bounds: %o', ({ byteOffset, byteCount }) => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      expect(() => {
+        cache.store({
+          cells: ['a', 'b', 'c'],
+          byteOffset,
+          byteCount,
+        })
+      }).toThrow()
     })
-    // Store a row to create a random range
-    cache.store({
-      cells: ['d', 'e', 'f'],
-      byteOffset: 40,
-      byteCount: 10,
-    })
-    // Prepend a row to the random range
-    cache.store({
-      cells: ['a', 'b', 'c'],
-      byteOffset: 30,
-      byteCount: 10,
-    })
-    // Check that both rows are stored correctly
-    expect(cache.getCell({ row: 2, column: 0 })).toStrictEqual({ value: 'a' })
-    expect(cache.getCell({ row: 2, column: 1 })).toStrictEqual({ value: 'b' })
-    expect(cache.getCell({ row: 2, column: 2 })).toStrictEqual({ value: 'c' })
-    expect(cache.getCell({ row: 3, column: 0 })).toStrictEqual({ value: 'd' })
-    expect(cache.getCell({ row: 3, column: 1 })).toStrictEqual({ value: 'e' })
-    expect(cache.getCell({ row: 3, column: 2 })).toStrictEqual({ value: 'f' })
-  })
 
-  it('should store rows after checking multiple random ranges', () => {
-    const cache = new CSVCache({
-      columnNames: ['col1', 'col2', 'col3'],
-      byteLength: 300,
-      initialByteCount: 0,
-      delimiter: ',',
-      newline: '\n' as const,
+    it.each([
+      { initialRow: { byteOffset: 10, byteCount: 10 }, row: { byteOffset: 5, byteCount: 10 }, expected: 'Cannot store the row: overlap with previous range' },
+      { initialRow: { byteOffset: 20, byteCount: 10 }, row: { byteOffset: 5, byteCount: 10 }, expected: 'Cannot store the row: overlap with previous range' },
+      { initialRow: { byteOffset: 10, byteCount: 10 }, row: { byteOffset: 15, byteCount: 10 }, expected: 'Cannot store the row: overlap with previous range' },
+      { initialRow: { byteOffset: 20, byteCount: 10 }, row: { byteOffset: 15, byteCount: 10 }, expected: 'Cannot store the row: overlap with next range' },
+      { initialRow: { byteOffset: 20, byteCount: 10 }, row: { byteOffset: 25, byteCount: 10 }, expected: 'Cannot store the row: overlap with next range' },
+    ])('throws when storing rows that overlap existing cached rows: %o', ({ initialRow, row, expected }) => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 200,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store an initial row
+      cache.store(initialRow)
+      expect(() => {
+        cache.store(row)
+      }).toThrow(expected)
     })
-    // Store first row to create first random range
-    cache.store({
-      byteOffset: 10,
-      byteCount: 10,
+
+    it('shoud merge two adjacent ranges when storing rows', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store first row
+      cache.store({
+        cells: ['a', 'b', 'c'],
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      // Store third row, creating a new random range
+      cache.store({
+        cells: ['e', 'f', 'g'],
+        byteOffset: 40,
+        byteCount: 60,
+      })
+      // At this point, we should have two ranges, and not all the rows have been cached
+      expect(cache.allRowsCached).toBe(false)
+      expect(cache.rowCount).toBe(2)
+      // Now store the second row, which should merge the two ranges
+      cache.store({
+        cells: ['d', 'e', 'f'],
+        byteOffset: 20,
+        byteCount: 20,
+      })
+      // now, the cache should include all the rows
+      expect(cache.allRowsCached).toBe(true)
+      expect(cache.rowCount).toBe(3)
     })
-    // Store second row to create second random range
-    cache.store({
-      byteOffset: 30,
-      byteCount: 10,
+
+    it('should prepend rows to a random range correctly', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store a row to create a random range
+      cache.store({
+        cells: ['d', 'e', 'f'],
+        byteOffset: 40,
+        byteCount: 10,
+      })
+      // Prepend a row to the random range
+      cache.store({
+        cells: ['a', 'b', 'c'],
+        byteOffset: 30,
+        byteCount: 10,
+      })
+      // Check that both rows are stored correctly
+      expect(cache.getCell({ row: 2, column: 0 })).toStrictEqual({ value: 'a' })
+      expect(cache.getCell({ row: 2, column: 1 })).toStrictEqual({ value: 'b' })
+      expect(cache.getCell({ row: 2, column: 2 })).toStrictEqual({ value: 'c' })
+      expect(cache.getCell({ row: 3, column: 0 })).toStrictEqual({ value: 'd' })
+      expect(cache.getCell({ row: 3, column: 1 })).toStrictEqual({ value: 'e' })
+      expect(cache.getCell({ row: 3, column: 2 })).toStrictEqual({ value: 'f' })
     })
-    // Store third row to create third random range
-    cache.store({
-      byteOffset: 50,
-      byteCount: 10,
+
+    it('should store rows after checking multiple random ranges', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 300,
+        initialByteCount: 0,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store first row to create first random range
+      cache.store({
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      // Store second row to create second random range
+      cache.store({
+        byteOffset: 30,
+        byteCount: 10,
+      })
+      // Store third row to create third random range
+      cache.store({
+        byteOffset: 50,
+        byteCount: 10,
+      })
     })
   })
 })
