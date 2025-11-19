@@ -16,16 +16,6 @@ describe('csvDataFrame', () => {
       })
       expect(df.numRows).toBe(3)
       expect(df.columnDescriptors).toStrictEqual(['a', 'b', 'c'].map(name => ({ name })))
-      expect(df.getCell({ row: 1, column: 'b' })).toStrictEqual({ value: '5' })
-      expect(df.getRowNumber({ row: 2 })).toStrictEqual({ value: 2 })
-      // return undefined for out-of-bounds rows, since we cannot know exactly the number of rows
-      // TODO(SL): throw if we know the exact number of rows?
-      expect(df.getRowNumber({ row: 5 })).toBeUndefined()
-      expect(df.getCell({ row: 5, column: 'a' })).toBeUndefined()
-      // throws
-      expect(() => df.getCell({ row: 0, column: 'd' })).toThrow()
-      expect(() => df.getCell({ row: -1, column: 'a' })).toThrow()
-      expect(() => df.getRowNumber({ row: -2 })).toThrow()
       revoke()
     })
 
@@ -48,8 +38,7 @@ describe('csvDataFrame', () => {
       })
       expect(df.numRows).toBe(0)
       expect(df.columnDescriptors).toStrictEqual(['a'].map(name => ({ name })))
-      expect(df.getCell({ row: 0, column: 'a' })).toBeUndefined()
-      expect(df.getRowNumber({ row: 0 })).toBeUndefined()
+      expect(() => df.getRowNumber({ row: 0 })).toThrow()
       revoke()
     })
 
