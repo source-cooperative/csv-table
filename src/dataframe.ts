@@ -168,6 +168,7 @@ export async function csvDataFrame({ url, byteLength, chunkSize }: Params): Prom
         newline: cache.newline,
         chunkSize: fetchChunkSize,
         firstByte,
+        lastByte: byteLength - 1,
       })) {
         checkSignal(signal)
         j++
@@ -240,7 +241,7 @@ async function initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRo
   let cache: CSVCache | undefined = undefined
 
   // Fetch the first rows, including the header
-  for await (const result of parseURL(url, { chunkSize })) {
+  for await (const result of parseURL(url, { chunkSize, lastByte: byteLength - 1 })) {
     if (cache === undefined) {
       if (isEmptyLine(result.row, { greedy: true })) {
         continue // skip empty lines before the header
