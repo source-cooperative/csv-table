@@ -50,9 +50,22 @@ describe('csvDataFrame', () => {
         byteLength: fileSize,
         initialRowCount: 2,
       })
-      expect(df.numRows).toBe(4) // the estimate is not perfect
       expect(df.getCell({ row: 1, column: 'b' })).toStrictEqual({ value: '5' })
       expect(df.getCell({ row: 2, column: 'b' })).toBeUndefined()
+      revoke()
+    })
+
+    it('when the CSV file is not fully loaded, the number of rows might be inaccurate', async () => {
+      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
+      const { url, revoke, fileSize } = toURL(text)
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 1,
+      })
+      // with only one row loaded, the average row size is not accurate enough to estimate the number of rows
+      expect(df.numRows).toBe(4) // the estimate is not perfect
+      expect(df.getCell({ row: 1, column: 'b' })).toBeUndefined()
       revoke()
     })
 
@@ -64,7 +77,6 @@ describe('csvDataFrame', () => {
         byteLength: fileSize,
         initialRowCount: 0,
       })
-      expect(df.numRows).toBe(0) // the estimate is not perfect
       expect(df.getCell({ row: 1, column: 'b' })).toBeUndefined()
       revoke()
     })
@@ -275,7 +287,6 @@ describe('csvDataFrame', () => {
         byteLength: fileSize,
         initialRowCount: 2,
       })
-      expect(df.numRows).toBe(7) // the estimate is not perfect
       expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 2, rowEnd: 5 })
       expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '7' })
@@ -292,7 +303,6 @@ describe('csvDataFrame', () => {
         byteLength: fileSize,
         initialRowCount: 1,
       })
-      expect(df.numRows).toBe(5) // the estimate is not perfect
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 1, rowEnd: 10 })
       expect(df.getCell({ row: 1, column: 'a' })).toStrictEqual({ value: '4' })
@@ -310,12 +320,52 @@ describe('csvDataFrame', () => {
         initialRowCount: 1,
         chunkSize: 8, // small chunk size to force multiple fetches
       })
-      expect(df.numRows).toBe(7) // the estimate is not perfect
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 1, rowEnd: 5 })
       expect(df.getCell({ row: 1, column: 'a' })).toStrictEqual({ value: '4' })
       expect(df.getCell({ row: 2, column: 'b' })).toStrictEqual({ value: '8' })
       expect(df.getCell({ row: 3, column: 'c' })).toStrictEqual({ value: '12' })
+      revoke()
+    })
+
+    it('should do nothing when fetching already cached rows', async () => {
+      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
+      const { url, revoke, fileSize } = toURL(text)
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 3,
+      })
+      expect(df.numRows).toBe(3)
+      const before = df.getCell({ row: 0, column: 'b' })
+      await df.fetch?.({ rowStart: 0, rowEnd: 1 })
+      const after = df.getCell({ row: 0, column: 'b' })
+      expect(after).toStrictEqual(before)
+      revoke()
+    })
+
+    it('should throw when fetching out-of-bound rows, if the dataframe is fully loaded', async () => {
+      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
+      const { url, revoke, fileSize } = toURL(text)
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+      })
+      await expect(df.fetch?.({ rowStart: 5, rowEnd: 10 })).rejects.toThrow()
+      revoke()
+    })
+
+    it('should fetch out-of-bound rows, if the dataframe is not fully loaded', async () => {
+      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
+      const { url, revoke, fileSize } = toURL(text)
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 2,
+      })
+      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
+      await df.fetch?.({ rowStart: 2, rowEnd: 10 })
+      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '7' })
       revoke()
     })
   })
