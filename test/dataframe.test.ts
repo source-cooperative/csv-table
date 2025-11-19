@@ -8,7 +8,7 @@ describe('csvDataFrame', () => {
     it('should create a dataframe from a CSV file', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
       // Includes the extra character ' ' to handle bug in Node.js (see toURL)
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       // TODO(SL): make it sync, by passing the header?
       const df = await csvDataFrame({
         url,
@@ -21,7 +21,7 @@ describe('csvDataFrame', () => {
 
     it('should throw when creating a dataframe from an empty CSV file without a header (one column is required)', async () => {
       const text = '\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       await expect(csvDataFrame({
         url,
         byteLength: fileSize,
@@ -31,7 +31,7 @@ describe('csvDataFrame', () => {
 
     it('should create a dataframe from a CSV file with only a header', async () => {
       const text = 'a'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -44,7 +44,7 @@ describe('csvDataFrame', () => {
 
     it('should fetch initial rows when specified', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -57,7 +57,7 @@ describe('csvDataFrame', () => {
 
     it('when the CSV file is not fully loaded, the number of rows might be inaccurate', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -71,7 +71,7 @@ describe('csvDataFrame', () => {
 
     it('should fetch initial rows when specified, even if it is 0', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -83,7 +83,7 @@ describe('csvDataFrame', () => {
 
     it('should ignore empty rows when fetching initial rows', async () => {
       const text = 'a,b,c\n1,2,3\n\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -96,7 +96,7 @@ describe('csvDataFrame', () => {
 
     it('should not ignore rows with empty cells when fetching initial rows', async () => {
       const text = 'a,b,c\n1,2,3\n,\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -108,7 +108,7 @@ describe('csvDataFrame', () => {
 
     it('should ignore empty rows before the header', async () => {
       const text = '\n\n\na,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -121,7 +121,7 @@ describe('csvDataFrame', () => {
 
     it('should ignore rows with only whitespace and delimitersbefore the header', async () => {
       const text = '\n\t\n , , \n,,\na,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -136,7 +136,7 @@ describe('csvDataFrame', () => {
   describe('getCell', () => {
     it('should return the correct cell values', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -149,7 +149,7 @@ describe('csvDataFrame', () => {
 
     it('should throw when called with invalid parameters', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -161,7 +161,7 @@ describe('csvDataFrame', () => {
 
     it('should return undefined for not yet cached cells', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -173,7 +173,7 @@ describe('csvDataFrame', () => {
 
     it('should return undefined for out-of-bound cells, if the dataframe is not fully loaded', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -185,7 +185,7 @@ describe('csvDataFrame', () => {
 
     it('should throw for out-of-bound cells, if the dataframe is fully loaded', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -196,7 +196,7 @@ describe('csvDataFrame', () => {
 
     it('should throw when called with an orderBy parameter', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -209,7 +209,7 @@ describe('csvDataFrame', () => {
   describe('getRowNumber', () => {
     it('should return the correct row numbers', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -222,7 +222,7 @@ describe('csvDataFrame', () => {
 
     it('should throw when called with invalid parameters', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -233,7 +233,7 @@ describe('csvDataFrame', () => {
 
     it('should return undefined for not yet cached rows', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -245,7 +245,7 @@ describe('csvDataFrame', () => {
 
     it('should return undefined for out-of-bound rows, if the dataframe is not fully loaded', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -257,7 +257,7 @@ describe('csvDataFrame', () => {
 
     it('should throw for out-of-bound rows, if the dataframe is fully loaded', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -268,7 +268,7 @@ describe('csvDataFrame', () => {
 
     it('should throw when called with an orderBy parameter', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -281,7 +281,7 @@ describe('csvDataFrame', () => {
   describe('fetch', () => {
     it('should fetch more rows', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -297,7 +297,7 @@ describe('csvDataFrame', () => {
 
     it('should fetch rows even if some are empty', async () => {
       const text = 'a,b,c\n1,2,3\n\n4,5,6\n\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -313,7 +313,7 @@ describe('csvDataFrame', () => {
 
     it('should use the chunk size when fetching rows', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -330,7 +330,7 @@ describe('csvDataFrame', () => {
 
     it('should do nothing when fetching already cached rows', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -346,7 +346,7 @@ describe('csvDataFrame', () => {
 
     it('should throw when fetching out-of-bound rows, if the dataframe is fully loaded', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -357,7 +357,7 @@ describe('csvDataFrame', () => {
 
     it('should fetch out-of-bound rows, if the dataframe is not fully loaded', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
-      const { url, revoke, fileSize } = toURL(text)
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
@@ -366,6 +366,54 @@ describe('csvDataFrame', () => {
       expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 2, rowEnd: 10 })
       expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '7' })
+      revoke()
+    })
+
+    it('should fetch rows at a random position if requested', async () => {
+      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 2,
+      })
+      expect(df.getCell({ row: 3, column: 'a' })).toBeUndefined()
+      await df.fetch?.({ rowStart: 3, rowEnd: 4 })
+      // row 3 is now cached, while row 2 is still not cached
+      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '10' })
+      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
+      revoke()
+    })
+
+    it('will fetch an incorrect row if the average row size had been overestimated', async () => {
+      const text = 'a,b,c\n11,22,33\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 1,
+      })
+      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
+      await df.fetch?.({ rowStart: 2, rowEnd: 5 })
+      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '10' }) // should be 7
+      expect(df.getCell({ row: 3, column: 'b' })).toStrictEqual({ value: '14' }) // should be 11
+      expect(df.getCell({ row: 4, column: 'c' })).toBeUndefined() // should be 15
+      revoke()
+    })
+
+    it('fails to fetch the last rows if the average row size has been overestimated', async () => {
+      const text = 'a,b,c\n111111111,222222222,333333333\n,4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 1,
+      })
+      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
+      await df.fetch?.({ rowStart: 3, rowEnd: 5 })
+      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 2, column: 'b' })).toBeUndefined()
+      expect(df.getCell({ row: 3, column: 'c' })).toBeUndefined()
       revoke()
     })
   })

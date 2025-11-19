@@ -21,8 +21,8 @@ import {
 import { CSVCache } from './cache'
 import { checkNonNegativeInteger } from './helpers.js'
 
-const defaultChunkSize = 50 * 1024 // 50 KB
-const defaultInitialRowCount = 50
+const defaultChunkSize = 500 * 1024 // 500 KB
+const defaultInitialRowCount = 500
 // const paddingRowCount = 20 // fetch a bit before and after the requested range, to avoid cutting rows
 
 interface Params {
@@ -222,10 +222,25 @@ export async function csvDataFrame(params: Params): Promise<DataFrame> {
           break
         }
         if (next.firstByte < nextByte) {
-          // after storing the current row, the next missing row is estimated to be before the current cursor, so we have to stop fetching and start a new loop
+          // after storing the current row, the next missing row is estimated to be before the current cursor,
+          // so we have to stop fetching and start a new loop
+          // TODO(SL): maybe it's trying to be too smart here?
           break
         }
         // otherwise, continue fetching in the current loop, even if some rows are already cached
+      }
+
+      // check if we made any progress
+      if (j === 0) {
+        // no progress, avoid infinite loop
+        break
+        // TODO(SL) for example, it occurs when the estimated byte offset is beyond the end of the file.
+        // To fix that, we could fetch more rows at the start to improve the estimation, then retry.
+        // Also: the estimation could be improved by:
+        // - using median row size instead of average
+        // - substracting the header size
+        //
+        // Also: we could fetch from the end of the file to get the last rows (#antiserial).
       }
     }
   }
