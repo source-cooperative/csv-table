@@ -22,13 +22,14 @@ import { CSVCache } from './cache'
 import { checkNonNegativeInteger } from './helpers.js'
 
 const defaultChunkSize = 50 * 1024 // 50 KB
-const initialRowCount = 50 // number of rows to fetch initially to estimate the average row size
+const defaultInitialRowCount = 50
 // const paddingRowCount = 20 // fetch a bit before and after the requested range, to avoid cutting rows
 
 interface Params {
   url: string
   byteLength: number // total byte length of the file
   chunkSize?: number // download chunk size
+  initialRowCount?: number // number of rows to fetch at dataframe creation
 }
 
 /**
@@ -37,18 +38,21 @@ interface Params {
  * @param options.url - URL of the CSV file
  * @param options.byteLength - total byte length of the file
  * @param options.chunkSize - download chunk size
+ * @param options.initialRowCount - number of rows to fetch at dataframe creation
  * @returns DataFrame representing the CSV file
  */
-export async function csvDataFrame({ url, byteLength, chunkSize }: Params): Promise<DataFrame> {
+export async function csvDataFrame({ url, byteLength, chunkSize, initialRowCount }: Params): Promise<DataFrame> {
   chunkSize ??= defaultChunkSize
+  initialRowCount ??= defaultInitialRowCount
 
   const eventTarget = createEventTarget<DataFrameEvents>()
   const cache = await initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRowCount })
   const averageRowByteCount = cache.averageRowByteCount
-  if (averageRowByteCount === undefined || averageRowByteCount === 0) {
-    throw new Error('Cannot create dataframe: not enough data to estimate number of rows')
-  }
-  const numRows = cache.allRowsCached ? cache.rowCount : Math.floor(byteLength / averageRowByteCount)
+  const numRows = cache.allRowsCached
+    ? cache.rowCount
+    : averageRowByteCount === 0 || averageRowByteCount === undefined
+      ? 0
+      : Math.ceil(byteLength / averageRowByteCount)
   // TODO(SL): add metadata to tell if the number of rows is an estimate or exact?
   const columnDescriptors: DataFrame['columnDescriptors'] = cache.columnNames.map(name => ({ name }))
 
@@ -69,19 +73,21 @@ export async function csvDataFrame({ url, byteLength, chunkSize }: Params): Prom
     column: string
     orderBy?: OrderBy
   }): ResolvedValue | undefined {
-    // TODO(SL): how to handle the last rows when the number of rows is uncertain?
+    // until the CSV is fully loaded, we don't know the exact number of rows
+    const numRows = cache.allRowsCached ? cache.rowCount : Infinity
     validateGetCellParams({
       row,
       column,
       orderBy,
       data: {
-        numRows: Infinity, // we don't (always) know the exact number of rows yet
+        numRows,
         columnDescriptors,
       },
     })
     const columnIndex = columnDescriptors.findIndex(
       cd => cd.name === column,
     )
+    // v8 ignore if -- @preserve
     if (columnIndex === -1) {
       // should not happen because of the validation above
       throw new Error(`Column not found: ${column}`)
@@ -103,12 +109,13 @@ export async function csvDataFrame({ url, byteLength, chunkSize }: Params): Prom
     row: number
     orderBy?: OrderBy
   }): ResolvedValue<number> | undefined {
-    // TODO(SL): how to handle the last rows when the number of rows is uncertain?
+    // until the CSV is fully loaded, we don't know the exact number of rows
+    const numRows = cache.allRowsCached ? cache.rowCount : Infinity
     validateGetRowNumberParams({
       row,
       orderBy,
       data: {
-        numRows: Infinity, // we don't (always) know the exact number of rows yet
+        numRows,
         columnDescriptors,
       },
     })
