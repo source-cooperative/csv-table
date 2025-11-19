@@ -29,7 +29,6 @@ interface Params {
   url: string
   byteLength: number // total byte length of the file
   chunkSize?: number // download chunk size
-  maxCachedBytes?: number // max number of bytes to keep in cache before evicting old rows
 }
 
 /**
