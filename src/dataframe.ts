@@ -34,16 +34,17 @@ interface Params {
 
 /**
  * Helpers to load a CSV file as a dataframe
- * @param options - options for creating the dataframe
- * @param options.url - URL of the CSV file
- * @param options.byteLength - total byte length of the file
- * @param options.chunkSize - download chunk size
- * @param options.initialRowCount - number of rows to fetch at dataframe creation
+ * @param params - params for creating the dataframe
+ * @param params.url - URL of the CSV file
+ * @param params.byteLength - total byte length of the file
+ * @param params.chunkSize - download chunk size
+ * @param params.initialRowCount - number of rows to fetch at dataframe creation
  * @returns DataFrame representing the CSV file
  */
-export async function csvDataFrame({ url, byteLength, chunkSize, initialRowCount }: Params): Promise<DataFrame> {
-  chunkSize ??= defaultChunkSize
-  initialRowCount ??= defaultInitialRowCount
+export async function csvDataFrame(params: Params): Promise<DataFrame> {
+  const chunkSize = params.chunkSize ?? defaultChunkSize
+  const initialRowCount = params.initialRowCount ?? defaultInitialRowCount
+  const { url, byteLength } = params
 
   const eventTarget = createEventTarget<DataFrameEvents>()
   const cache = await initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRowCount })
@@ -158,12 +159,13 @@ export async function csvDataFrame({ url, byteLength, chunkSize, initialRowCount
     })
 
     const maxLoops = (rowEnd - rowStart) + 10 // safety to avoid infinite loops
-    const fetchChunkSize = chunkSize ?? defaultChunkSize
     let next = cache.getNextMissingRow({ rowStart, rowEnd })
     let i = 0
     while (next) {
       i++
+      // v8 ignore if -- @preserve
       if (i > maxLoops) {
+        // should not happen
         throw new Error('Maximum fetch loops exceeded')
       }
       const firstByte = next.firstByte
@@ -173,13 +175,15 @@ export async function csvDataFrame({ url, byteLength, chunkSize, initialRowCount
       for await (const result of parseURL(url, {
         delimiter: cache.delimiter,
         newline: cache.newline,
-        chunkSize: fetchChunkSize,
+        chunkSize,
         firstByte,
         lastByte: byteLength - 1,
       })) {
         checkSignal(signal)
         j++
+        // v8 ignore if -- @preserve
         if (j > maxLoops) {
+          // should not happen
           throw new Error('Maximum parse loops exceeded')
         }
         if (isFirstRow && ignoreFirstRow) {
@@ -189,6 +193,12 @@ export async function csvDataFrame({ url, byteLength, chunkSize, initialRowCount
         if (result.meta.byteOffset < next.firstByte) {
           // already cached
           continue
+        }
+        if (result.meta.byteCount === 0) {
+          // no progress, avoid infinite loop
+          // it's the last line in the file and it's empty
+          next = undefined
+          break
         }
         const isEmpty = isEmptyLine(result.row)
         cache.store({
@@ -207,11 +217,11 @@ export async function csvDataFrame({ url, byteLength, chunkSize, initialRowCount
           break
         }
         const nextByte = result.meta.byteOffset + result.meta.byteCount
-        if (next.firstByte > nextByte + fetchChunkSize) {
+        if (next.firstByte > nextByte + chunkSize) {
           // the next missing range is beyond the current chunk, so we can stop the current loop and start a new fetch
           break
         }
-        if (next.firstByte <= nextByte) {
+        if (next.firstByte < nextByte) {
           // after storing the current row, the next missing row is estimated to be before the current cursor, so we have to stop fetching and start a new loop
           break
         }
@@ -257,6 +267,10 @@ async function initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRo
       cache = CSVCache.fromHeader({ header: result, byteLength })
       continue
     }
+    else if (cache.rowCount >= initialRowCount) {
+      // enough rows for now
+      break
+    }
     else {
       // data row
       cache.store({
@@ -265,10 +279,6 @@ async function initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRo
         byteOffset: result.meta.byteOffset,
         byteCount: result.meta.byteCount,
       })
-    }
-    if (cache.rowCount >= initialRowCount) {
-      // enough rows for now
-      break
     }
   }
 
