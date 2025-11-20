@@ -201,11 +201,6 @@ export async function csvDataFrame(params: Params): Promise<DataFrame> {
           isFirstRow = false
           continue
         }
-        // v8 ignore if -- @preserve
-        if (result.meta.byteOffset < next.firstByte) {
-          // should not happen
-          throw new Error('Parser returned byte offset before the requested first byte')
-        }
         if (result.meta.byteCount === 0) {
           // no progress, avoid infinite loop
           // it's the last line in the file and it's empty
