@@ -115,7 +115,7 @@ export default function App(): ReactNode {
               <Page {...state} iframe={iframe} setError={setUnknownError} />
             )
           : (
-              <Welcome />
+              <Welcome setUrl={onUrlDrop} />
             )}
       </Dropzone>
     </Layout>

@@ -157,6 +157,14 @@ main {
   flex-direction: column;
   margin: auto 0;
 }
+.inputGroup {
+  display: flex;
+  gap: 10px;
+}
+.inputGroup > input {
+  flex: 1;
+}
+
 /* quick link buttons */
 .quick-links {
   display: flex;
