@@ -45,14 +45,9 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
 
   const eventTarget = createEventTarget<DataFrameEvents>()
   const cache = await initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRowCount })
-  const averageRowByteCount = cache.averageRowByteCount
-  const numRows = cache.allRowsCached
-    ? cache.rowCount
-    : averageRowByteCount === 0 || averageRowByteCount === undefined
-      ? 0
-      : Math.round((byteLength - cache.headerByteCount) / averageRowByteCount)
+  const { numRows, isEstimate } = cache.numRowsEstimate
   const metadata = {
-    isNumRowsEstimated: !cache.allRowsCached,
+    isNumRowsEstimated: isEstimate,
   }
   const columnDescriptors: DataFrame['columnDescriptors'] = cache.columnNames.map(name => ({ name }))
 

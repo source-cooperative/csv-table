@@ -148,6 +148,7 @@ describe('CSVCache', () => {
       expect(cache.averageRowByteCount).toBe(undefined)
       expect(cache.headerByteCount).toBe(15)
       expect(cache.allRowsCached).toBe(false)
+      expect(cache.numRowsEstimate).toEqual({ numRows: 0, isEstimate: true })
       expect(cache.getCell({ row: 0, column: 0 })).toBeUndefined()
       expect(cache.getRowNumber({ row: 0 })).toBeUndefined()
       expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toEqual({ firstByte: 15, isEstimate: false })
@@ -221,6 +222,7 @@ describe('CSVCache', () => {
       })
       // The average row byte count should be 10 now
       expect(cache.averageRowByteCount).toBe(10)
+      expect(cache.numRowsEstimate).toEqual({ numRows: 9, isEstimate: true })
       // the first row must be retrieved correctly
       expect(cache.getCell({ row: 0, column: 0 })).toStrictEqual({ value: 'a' })
       expect(cache.getCell({ row: 0, column: 1 })).toStrictEqual({ value: 'b' })
@@ -282,6 +284,7 @@ describe('CSVCache', () => {
         byteCount: 70,
       })
       expect(cache.allRowsCached).toBe(true)
+      expect(cache.numRowsEstimate).toEqual({ numRows: 3, isEstimate: false })
     })
 
     it.each([
