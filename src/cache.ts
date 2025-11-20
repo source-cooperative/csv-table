@@ -325,7 +325,7 @@ export class CSVCache {
    * Get an estimate of the total number of rows in the CSV file
    * @returns The estimated number of rows and if it's an estimate
    */
-  get numRowsEstimate(): { numRows: number, isEstimate: boolean } | undefined {
+  get numRowsEstimate(): { numRows: number, isEstimate: boolean } {
     const averageRowByteCount = this.averageRowByteCount
     const numRows = this.allRowsCached
       ? this.rowCount
