@@ -23,6 +23,21 @@ describe('CSVRange', () => {
     expect(range.getCells({ row: 10 })).toBeUndefined()
   })
 
+  it('firstRow can be set', () => {
+    const range = new CSVRange({ firstByte: 0, firstRow: 0 })
+    expect(range.firstRow).toBe(0)
+    range.firstRow = 5
+    expect(range.firstRow).toBe(5)
+  })
+
+  it.each([-1, +Infinity, NaN, 1.5])('firstRow setter throws for incorrect value: %d', (value) => {
+    const range = new CSVRange({ firstByte: 0, firstRow: 0 })
+    expect(range.firstRow).toBe(0)
+    expect(() => {
+      range.firstRow = value
+    }).toThrow()
+  })
+
   it('should add rows correctly', () => {
     const range = new CSVRange({ firstByte: 100, firstRow: 10 })
     range.append({
@@ -660,6 +675,92 @@ describe('CSVCache', () => {
       expect(cache.getNextMissingRow({ rowStart: 2, rowEnd: 2 })).toBeUndefined()
       expect(cache.getNextMissingRow({ rowStart: 2, rowEnd: 3 })).toBeUndefined()
       expect(cache.getNextMissingRow({ rowStart: 2, rowEnd: 4 })).toStrictEqual({ firstByte: 40, isEstimate: false })
+    })
+  })
+
+  describe('isStored', () => {
+    it('should correctly identify stored and non-stored rows', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        headerByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store a row
+      cache.store({
+        cells: ['a', 'b', 'c'],
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      cache.store({
+        byteOffset: 60,
+        byteCount: 10,
+      })
+      cache.store({
+        cells: ['a', 'b', 'c'],
+        byteOffset: 80,
+        byteCount: 10,
+      })
+      expect(cache.isStored({ byteOffset: 10 })).toBe(true)
+      expect(cache.isStored({ byteOffset: 20 })).toBe(false)
+      expect(cache.isStored({ byteOffset: 60 })).toBe(true)
+      expect(cache.isStored({ byteOffset: 80 })).toBe(true)
+    })
+  })
+
+  describe('updateRowEstimates', () => {
+    it('should update row estimates correctly', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 200,
+        headerByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Initially, averageRowByteCount should be undefined
+      expect(cache.averageRowByteCount).toBeUndefined()
+      expect(cache.rowCount).toBe(0)
+      // Update changes nothing as there are no rows
+      cache.updateRowEstimates()
+      expect(cache.averageRowByteCount).toBeUndefined()
+      expect(cache.rowCount).toBe(0)
+      // Store an empty row
+      cache.store({
+        byteOffset: 10,
+        byteCount: 10,
+      })
+      expect(cache.averageRowByteCount).toBeUndefined()
+      expect(cache.rowCount).toBe(0)
+      // Update changes nothing as there are no stored rows with cells
+      cache.updateRowEstimates()
+      expect(cache.averageRowByteCount).toBeUndefined()
+      expect(cache.rowCount).toBe(0)
+      // Store one row
+      cache.store({
+        cells: ['a', 'b', 'c'],
+        byteOffset: 20,
+        byteCount: 10,
+      })
+      expect(cache.averageRowByteCount).toBe(10)
+      expect(cache.rowCount).toBe(1)
+      // Store another row at a random position
+      cache.store({
+        cells: ['d', 'e', 'f'],
+        byteOffset: 50,
+        byteCount: 70,
+      })
+      expect(cache.rowCount).toBe(2)
+      // its row index is estimated to be 3, because it has been computed with the current average (10)
+      expect(cache.getRowNumber({ row: 3 })).toEqual({ value: 3 })
+      // but the averageRowByteCount should be updated correctly
+      expect(cache.averageRowByteCount).toBe(40)
+      // Now, update the row estimates
+      cache.updateRowEstimates()
+      // The averageRowByteCount should remain the same
+      expect(cache.averageRowByteCount).toBe(40)
+      // but the row index should be updated to 2
+      expect(cache.getRowNumber({ row: 2 })).toEqual({ value: 2 })
     })
   })
 })

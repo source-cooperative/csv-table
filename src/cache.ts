@@ -54,6 +54,14 @@ export class CSVRange {
   }
 
   /**
+   * Set the first row number of the range
+   * @param value The first row number
+   */
+  set firstRow(value: number) {
+    this.#firstRow = checkNonNegativeInteger(value)
+  }
+
+  /**
    * Get the row number and first byte of the next row in the range
    * @returns The next row number and first byte
    */
@@ -278,6 +286,38 @@ export class CSVCache {
     this.#averageRowByteCount = averageRowByteCount
   }
 
+  /**
+   * Re-assign row numbers in random ranges to reduce overlaps
+   */
+  updateRowEstimates(): void {
+    const averageRowByteCount = this.averageRowByteCount
+    if (averageRowByteCount === undefined || averageRowByteCount === 0) {
+      return
+    }
+
+    let previousRange = this.#serial
+
+    // loop on the random ranges
+    for (const range of this.#random) {
+      // v8 ignore if -- @preserve
+      if (range.firstByte <= previousRange.next.firstByte) {
+        // should not happen
+        throw new Error('Cannot update row estimates: overlap with previous range')
+      }
+
+      const firstRow = Math.max(
+        // ensure at least one row gap
+        previousRange.next.row + 1,
+        // estimate based on byte position
+        Math.round(previousRange.next.row + (range.firstByte - previousRange.next.firstByte) / averageRowByteCount),
+      )
+
+      range.firstRow = firstRow
+
+      previousRange = range
+    }
+  }
+
   get averageRowByteCount(): number | undefined {
     return this.#averageRowByteCount
   }
@@ -407,9 +447,8 @@ export class CSVCache {
       break
     }
 
-    // Update the average row byte count and possibly re-assign row numbers
+    // Update the average row byte count
     this.#updateAverageRowByteCount()
-    // TODO(SL): re-assign row numbers in random ranges to reduce overlaps
   }
 
   /**
@@ -477,6 +516,24 @@ export class CSVCache {
       // try the next missing range
       first = next
     }
+  }
+
+  /**
+   * Check if the given byte range is stored in the cache.
+   * @param options Options
+   * @param options.byteOffset The byte offset of the range.
+   * @returns True if the byte range is stored, false otherwise.
+   */
+  isStored({ byteOffset }: { byteOffset: number }): boolean {
+    checkNonNegativeInteger(byteOffset)
+
+    for (const range of [this.#serial, ...this.#random]) {
+      if (range.firstByte <= byteOffset && byteOffset < range.next.firstByte) {
+        return true
+      }
+    }
+
+    return false
   }
 
   static fromHeader({ header, byteLength }: { header: ParseResult, byteLength: number }): CSVCache {

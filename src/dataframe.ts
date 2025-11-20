@@ -169,80 +169,118 @@ export async function csvDataFrame(params: Params): Promise<DataFrame> {
     }
 
     const maxLoops = (rowEnd - rowStart) + 10 // safety to avoid infinite loops
-    let next = cache.getNextMissingRow({ rowStart, rowEnd })
+    let hasFetchedSomeRows = false
 
     let i = 0
-    while (next) {
+    while (true) {
+      // fetch all missing ranges
       i++
-      // v8 ignore if -- @preserve
-      if (i > maxLoops) {
-        // should not happen
-        throw new Error('Maximum fetch loops exceeded')
-      }
-      const firstByte = next.firstByte
-      const ignoreFirstRow = next.isEstimate // if it's an estimate, we may be cutting a row
-      let isFirstRow = true
+      let next = cache.getNextMissingRow({ rowStart, rowEnd })
       let j = 0
-      for await (const result of parseURL(url, {
-        delimiter: cache.delimiter,
-        newline: cache.newline,
-        chunkSize,
-        firstByte,
-        lastByte: byteLength - 1,
-      })) {
-        checkSignal(signal)
+      while (next) {
+      // fetch next missing range
         j++
         // v8 ignore if -- @preserve
         if (j > maxLoops) {
+        // should not happen
+          throw new Error('Maximum fetch loops exceeded')
+        }
+        const firstByte = next.firstByte
+        const ignoreFirstRow = next.isEstimate // if it's an estimate, we may be cutting a row
+        let isFirstRow = true
+        let k = 0
+        for await (const result of parseURL(url, {
+          delimiter: cache.delimiter,
+          newline: cache.newline,
+          chunkSize,
+          firstByte,
+          lastByte: byteLength - 1,
+        })) {
+          checkSignal(signal)
+          k++
+          // v8 ignore if -- @preserve
+          if (k > maxLoops) {
           // should not happen
-          throw new Error('Maximum parse loops exceeded')
-        }
-        if (isFirstRow && ignoreFirstRow) {
-          isFirstRow = false
-          continue
-        }
-        if (result.meta.byteCount === 0) {
+            throw new Error('Maximum parse loops exceeded')
+          }
+          if (isFirstRow && ignoreFirstRow) {
+            isFirstRow = false
+            continue
+          }
+          if (result.meta.byteCount === 0) {
           // no progress, avoid infinite loop
           // it's the last line in the file and it's empty
-          next = undefined
-          break
-        }
-        const isEmpty = isEmptyLine(result.row)
-        cache.store({
-          cells: isEmpty ? undefined : result.row,
-          byteOffset: result.meta.byteOffset,
-          byteCount: result.meta.byteCount,
-        })
-        if (!isEmpty) {
-          eventTarget.dispatchEvent(new CustomEvent('resolve'))
-        }
+            next = undefined
+            break
+          }
 
-        // next row
-        next = cache.getNextMissingRow({ rowStart, rowEnd })
-        if (!next) {
+          // Store the new row in the cache
+          if (!cache.isStored({ byteOffset: result.meta.byteOffset })) {
+            const isEmpty = isEmptyLine(result.row)
+            cache.store({
+              cells: isEmpty ? undefined : result.row,
+              byteOffset: result.meta.byteOffset,
+              byteCount: result.meta.byteCount,
+            })
+            hasFetchedSomeRows ||= !isEmpty
+          }
+
+          // next row
+          next = cache.getNextMissingRow({ rowStart, rowEnd })
+          if (!next) {
           // no more missing ranges
-          break
-        }
-        const nextByte = result.meta.byteOffset + result.meta.byteCount
-        if (next.firstByte > nextByte + chunkSize) {
+            break
+          }
+          const nextByte = result.meta.byteOffset + result.meta.byteCount
+          if (next.firstByte > nextByte + chunkSize) {
           // the next missing range is beyond the current chunk, so we can stop the current loop and start a new fetch
-          break
+            break
+          }
+        // otherwise, continue fetching in the current loop,
+        // Note that some rows might already be cached. It's ok since fetching takes more time than parsing.
         }
-        // otherwise, continue fetching in the current loop, even if some rows are already cached
-      }
 
-      // check if we made any progress
-      if (j === 0) {
-        // no progress, avoid infinite loop
-        break
+        if (k === 0) {
+        // No progress (no row fetched in this missing range)
+        // Break to avoid infinite loop
+          break
         // TODO(SL) for example, it occurs when the estimated byte offset is beyond the end of the file.
         // To fix that, we could fetch more rows at the start to improve the estimation, then retry.
-        // Also: the estimation could be improved by:
-        // - using median row size instead of average
-        // - substracting the header size
         //
         // Also: we could fetch from the end of the file to get the last rows (#antiserial).
+        }
       }
+
+      // update the cache stats (average row size, firstRow of each random access block, etc.)
+      cache.updateRowEstimates()
+
+      // and then check again if all the requested rows have been fetched
+      const updatedNext = cache.getNextMissingRow({ rowStart, rowEnd })
+
+      // if all the requested rows are now cached, we can exit
+      if (!updatedNext) {
+        break
+      }
+
+      // if we made no progress, we can also exit to avoid infinite loops
+      if (next && updatedNext.firstByte === next.firstByte) {
+        break
+      }
+
+      // v8 ignore if -- @preserve
+      if (i >= maxLoops) {
+        // should not happen
+        throw new Error('Maximum estimation loops exceeded')
+      }
+
+      // else, continue the loop
+      next = updatedNext
+    }
+
+    // Dispatch resolve event if some rows were fetched
+    // We do it only at the end, because the row numbers might change while fetching, producing instable behavior.
+    if (hasFetchedSomeRows) {
+      eventTarget.dispatchEvent(new CustomEvent('resolve'))
     }
   }
 
