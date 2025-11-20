@@ -508,5 +508,32 @@ describe('csvDataFrame', () => {
       expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
       revoke()
     })
+
+    it('dispatches one "resolve" event when fetch is complete and rows have been resolved', async () => {
+      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 2,
+      })
+
+      let resolveEventCount = 0
+      df.eventTarget?.addEventListener('resolve', () => {
+        resolveEventCount++
+      })
+
+      await df.fetch?.({ rowStart: 2, rowEnd: 4 })
+      expect(resolveEventCount).toBe(1)
+
+      // No event because rows are already resolved
+      await df.fetch?.({ rowStart: 2, rowEnd: 4 })
+      expect(resolveEventCount).toBe(1)
+
+      await df.fetch?.({ rowStart: 2, rowEnd: 6 })
+      expect(resolveEventCount).toBe(2)
+
+      revoke()
+    })
   })
 })
