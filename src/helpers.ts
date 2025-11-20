@@ -21,6 +21,7 @@ export function cn(...names: (string | undefined | false)[]): string {
  */
 export async function byteLengthFromUrl(url: string, requestInit?: RequestInit, customFetch?: typeof globalThis.fetch): Promise<number> {
   const fetch = customFetch ?? globalThis.fetch
+  // TODO(SL): if the server does not support HEAD request, we may need to fallback to GET with range request bytes=0-0
   return await fetch(url, { ...requestInit, method: 'HEAD' })
     .then((res) => {
       if (!res.ok) throw new Error(`fetch head failed ${res.status.toString()}`)
