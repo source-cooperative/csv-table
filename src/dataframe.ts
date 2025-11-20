@@ -235,16 +235,17 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
           // the next missing range is beyond the current chunk, so we can stop the current loop and start a new fetch
             break
           }
-        // otherwise, continue fetching in the current loop,
-        // Note that some rows might already be cached. It's ok since fetching takes more time than parsing.
+          // otherwise, continue fetching in the current loop,
+          // Note that some rows might already be cached. It's ok since fetching takes more time than parsing.
         }
 
         if (k === 0) {
-        // No progress (no row fetched in this missing range)
-        // Break to avoid infinite loop
+          // No progress (no row fetched in this missing range)
+          // Break to avoid infinite loop
           break
-        // TODO(SL) for example, it occurs when the estimated byte offset is beyond the end of the file.
-        // To fix that, we could fetch more rows at the start to improve the estimation, then retry.
+          // For example, it occurs when the estimated byte offset is beyond the end of the file.
+          // To fix that, we could fetch more rows at the start to improve the estimation, then retry.
+          // See https://github.com/source-cooperative/csv-table/issues/11
         }
       }
 

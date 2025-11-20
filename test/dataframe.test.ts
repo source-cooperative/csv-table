@@ -537,5 +537,35 @@ describe('csvDataFrame', () => {
 
       revoke()
     })
+
+    it('can parse again the same rows, if the chunk has been fetched but some rows were already cached', async () => {
+      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 1,
+      })
+      expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '1' })
+      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 3, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 4, column: 'a' })).toBeUndefined()
+
+      await df.fetch?.({ rowStart: 3, rowEnd: 4 })
+      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '10' })
+      expect(df.getCell({ row: 4, column: 'a' })).toBeUndefined()
+
+      // Fetch again the same chunk
+      await df.fetch?.({ rowStart: 1, rowEnd: 5 })
+      expect(df.getCell({ row: 1, column: 'a' })).toStrictEqual({ value: '4' })
+      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '7' })
+      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '10' })
+      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '13' })
+
+      revoke()
+    })
   })
 })

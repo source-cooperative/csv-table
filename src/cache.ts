@@ -490,9 +490,6 @@ export class CSVCache {
         return
       }
       if (rowStart < firstRow) {
-        // TODO(SL): in both cases, what to do if firstByte is beyond byteLength?
-        // Should we try to decrease it?
-
         // the first row is in this missing range
         if (rowStart === first.row || this.averageRowByteCount === undefined) {
           // if the start row is the same as the first row, we can use the first byte directly
@@ -501,8 +498,15 @@ export class CSVCache {
         }
         // estimate the byte position based on the average row byte count, trying to get the middle of the previous row
         const delta = Math.floor((rowStart - first.row - 0.5) * this.averageRowByteCount)
+        const firstByte = first.firstByte + Math.max(0, delta)
+
+        // avoid going beyond the end of the file
+        if (firstByte >= this.#byteLength) {
+          return undefined
+        }
+
         return {
-          firstByte: first.firstByte + Math.max(0, delta),
+          firstByte,
           isEstimate: true,
         }
       }
