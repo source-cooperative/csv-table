@@ -228,12 +228,6 @@ export async function csvDataFrame(params: Params): Promise<DataFrame> {
           // the next missing range is beyond the current chunk, so we can stop the current loop and start a new fetch
           break
         }
-        if (next.firstByte < nextByte) {
-          // after storing the current row, the next missing row is estimated to be before the current cursor,
-          // so we have to stop fetching and start a new loop
-          // TODO(SL): maybe it's trying to be too smart here?
-          break
-        }
         // otherwise, continue fetching in the current loop, even if some rows are already cached
       }
 

@@ -445,5 +445,37 @@ describe('csvDataFrame', () => {
       expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '16' })
       revoke()
     })
+
+    it('fetches incorrect rows if the row estimation is incorrect', async () => {
+      const text = 'a,b,c\n111111,222222,333333\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n16,17,18\n19,20,21\n'
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 1,
+      })
+      expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '111111' })
+      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 3, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 4, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 5, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
+      // average row size here is 21, because of the first row
+
+      await df.fetch?.({ rowStart: 2, rowEnd: 6 })
+
+      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
+      // erroneously got row 4 instead of row 2, due to the overestimation of the average row size
+      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '13' })
+      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '16' })
+      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '19' })
+      // only three rows were actually fetched, instead of four, because the the parsing reached the end of the file
+      expect(df.getCell({ row: 5, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
+      revoke()
+    })
+
+    // const text = 'a,b,c\n11111111,22222222,33333333\n4,5,6\n7,8,9\n10,11,12\n'
   })
 })
