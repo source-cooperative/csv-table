@@ -122,7 +122,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 15,
+        headerByteCount: 15,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -131,6 +131,8 @@ describe('CSVCache', () => {
       expect(cache.delimiter).toBe(',')
       expect(cache.newline).toBe('\n')
       expect(cache.averageRowByteCount).toBe(undefined)
+      expect(cache.headerByteCount).toBe(15)
+      expect(cache.allRowsCached).toBe(false)
       expect(cache.getCell({ row: 0, column: 0 })).toBeUndefined()
       expect(cache.getRowNumber({ row: 0 })).toBeUndefined()
       expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toEqual({ firstByte: 15, isEstimate: false })
@@ -165,13 +167,13 @@ describe('CSVCache', () => {
 
     it.each([
       { columnNames: [] },
-      { initialByteCount: 200 },
+      { headerByteCount: 200 },
     ])('throws when initializing from invalid options: %o', (options) => {
       expect(() => {
         new CSVCache({
           columnNames: options.columnNames ?? ['a', 'b', 'c'],
           byteLength: 100,
-          initialByteCount: options.initialByteCount ?? 15,
+          headerByteCount: options.headerByteCount ?? 15,
           delimiter: ',',
           newline: '\n' as const,
         })
@@ -184,7 +186,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 15,
+        headerByteCount: 15,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -241,7 +243,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -276,7 +278,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -299,7 +301,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 200,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -314,7 +316,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -348,7 +350,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -377,7 +379,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 300,
-        initialByteCount: 0,
+        headerByteCount: 0,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -402,7 +404,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 300,
-        initialByteCount: 0,
+        headerByteCount: 0,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -429,7 +431,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -442,7 +444,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -460,7 +462,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -478,7 +480,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -500,7 +502,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -511,7 +513,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -529,7 +531,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -547,7 +549,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 200,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -577,7 +579,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 200,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -588,13 +590,13 @@ describe('CSVCache', () => {
       { options: { rowStart: 0, rowEnd: 0 }, expected: undefined },
       { options: { rowStart: 0, rowEnd: 2 }, expected: { firstByte: 20, isEstimate: false } },
       { options: { rowStart: 1, rowEnd: 2 }, expected: { firstByte: 20, isEstimate: false } },
-      { options: { rowStart: 2, rowEnd: 2 }, expected: { firstByte: 28, isEstimate: true } },
+      { options: { rowStart: 2, rowEnd: 2 }, expected: undefined },
       { options: { rowStart: 3, rowEnd: 2 }, expected: undefined },
     ])('should propose the next missing row correctly after #serial range: %o', ({ options, expected }) => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 200,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -608,12 +610,11 @@ describe('CSVCache', () => {
       { options: { rowStart: 1, rowEnd: 4 }, expected: { firstByte: 18, isEstimate: true } },
       { options: { rowStart: 2, rowEnd: 4 }, expected: { firstByte: 40, isEstimate: false } },
       { options: { rowStart: 3, rowEnd: 4 }, expected: { firstByte: 40, isEstimate: false } },
-      { options: { rowStart: 4, rowEnd: 4 }, expected: { firstByte: 48, isEstimate: true } },
     ])('should propose the next missing row correctly around a random range: %o', ({ options, expected }) => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 200,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -629,7 +630,7 @@ describe('CSVCache', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
-        initialByteCount: 10,
+        headerByteCount: 10,
         delimiter: ',',
         newline: '\n' as const,
       })
@@ -641,6 +642,24 @@ describe('CSVCache', () => {
       })
       expect(cache.allRowsCached).toBe(true)
       expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toBeUndefined()
+    })
+
+    it('should return undefined when all rows until rowEnd - 1 is already cached (exclusive)', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 200,
+        headerByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Store rows 0, 1, and 2
+      cache.store({ byteOffset: 10, byteCount: 10, cells: ['a', 'b', 'c'] }) // row 0
+      cache.store({ byteOffset: 20, byteCount: 10, cells: ['d', 'e', 'f'] }) // row 1
+      cache.store({ byteOffset: 30, byteCount: 10, cells: ['g', 'h', 'i'] }) // row 2
+
+      expect(cache.getNextMissingRow({ rowStart: 2, rowEnd: 2 })).toBeUndefined()
+      expect(cache.getNextMissingRow({ rowStart: 2, rowEnd: 3 })).toBeUndefined()
+      expect(cache.getNextMissingRow({ rowStart: 2, rowEnd: 4 })).toStrictEqual({ firstByte: 40, isEstimate: false })
     })
   })
 })

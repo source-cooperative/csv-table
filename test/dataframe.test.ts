@@ -55,8 +55,11 @@ describe('csvDataFrame', () => {
       revoke()
     })
 
-    it('when the CSV file is not fully loaded, the number of rows might be inaccurate', async () => {
-      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
+    it.each([
+      { text: 'a,b,c\n1111,2222,3333\nn44,55,66\n77,88,99\n', expectedRows: 2 },
+      { text: 'a,b,c\n11,22,33\n44,55,66\n77,88,99\n', expectedRows: 3 },
+      { text: 'a,b,c\n1,2,3\nn44,55,66\n77,88,99\n', expectedRows: 4 },
+    ])('when the CSV file is not fully loaded, the number of rows might be inaccurate: $expectedRows (correct: 3)', async ({ text, expectedRows }) => {
       const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
@@ -64,8 +67,7 @@ describe('csvDataFrame', () => {
         initialRowCount: 1,
       })
       // with only one row loaded, the average row size is not accurate enough to estimate the number of rows
-      expect(df.numRows).toBe(4) // the estimate is not perfect
-      expect(df.getCell({ row: 1, column: 'b' })).toBeUndefined()
+      expect(df.numRows).toBe(expectedRows) // the estimate is not perfect
       revoke()
     })
 
@@ -414,6 +416,33 @@ describe('csvDataFrame', () => {
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
       expect(df.getCell({ row: 2, column: 'b' })).toBeUndefined()
       expect(df.getCell({ row: 3, column: 'c' })).toBeUndefined()
+      revoke()
+    })
+
+    it('should break the current parsing and start a new one if the next row is beyond one chunk size', async () => {
+      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n16,17,18\n'
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 1,
+        chunkSize: 8, // small chunk size to force multiple fetches
+      })
+      expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '1' })
+      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 3, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 4, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 5, column: 'a' })).toBeUndefined()
+      await df.fetch?.({ rowStart: 2, rowEnd: 5 })
+      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '7' })
+      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '10' })
+      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '13' })
+      expect(df.getCell({ row: 5, column: 'a' })).toBeUndefined()
+      await df.fetch?.({ rowStart: 1, rowEnd: 6 })
+      expect(df.getCell({ row: 1, column: 'a' })).toStrictEqual({ value: '4' })
+      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '16' })
       revoke()
     })
   })

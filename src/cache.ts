@@ -165,6 +165,10 @@ export class CSVCache {
    */
   #columnNames: string[]
   /**
+   * The header byte count
+   */
+  #headerByteCount: number
+  /**
    * The serial range, starting at byte 0
    */
   #serial: CSVRange
@@ -185,25 +189,26 @@ export class CSVCache {
    */
   #averageRowByteCount: number | undefined = undefined
 
-  constructor({ columnNames, initialByteCount, byteLength, delimiter, newline }: { columnNames: string[], initialByteCount?: number, byteLength: number, delimiter: string, newline: Newline }) {
-    initialByteCount ??= 0
-    checkNonNegativeInteger(initialByteCount)
+  constructor({ columnNames, headerByteCount, byteLength, delimiter, newline }: { columnNames: string[], headerByteCount?: number, byteLength: number, delimiter: string, newline: Newline }) {
+    headerByteCount ??= 0
+    checkNonNegativeInteger(headerByteCount)
     checkNonNegativeInteger(byteLength)
     if (columnNames.length === 0) {
       throw new Error('Cannot create CSVCache: no column names provided')
     }
-    if (initialByteCount > byteLength) {
+    if (headerByteCount > byteLength) {
       throw new Error('Initial byte count exceeds byte length')
     }
     this.#byteLength = byteLength
     this.#columnNames = columnNames.slice()
+    this.#headerByteCount = headerByteCount
     this.#delimiter = delimiter
     this.#newline = newline
     this.#serial = new CSVRange({ firstByte: 0, firstRow: 0 })
     // Account for the header row and previous ignored rows if any
     this.#serial.append({
       byteOffset: 0,
-      byteCount: initialByteCount,
+      byteCount: headerByteCount,
     })
     this.#random = []
 
@@ -216,6 +221,14 @@ export class CSVCache {
    */
   get columnNames(): string[] {
     return this.#columnNames.slice()
+  }
+
+  /**
+   * Get the header byte count
+   * @returns The header byte count
+   */
+  get headerByteCount(): number {
+    return this.#headerByteCount
   }
 
   /**
@@ -439,8 +452,8 @@ export class CSVCache {
         // ignore cached rows
         rowStart = first.row
       }
-      if (rowEnd < rowStart) {
-        // no missing row
+      if (rowEnd <= rowStart) {
+        // no missing row (rowEnd is exclusive)
         return
       }
       if (rowStart < firstRow) {
@@ -472,7 +485,7 @@ export class CSVCache {
       byteLength,
       delimiter: header.meta.delimiter,
       newline: header.meta.newline,
-      initialByteCount: header.meta.byteOffset + header.meta.byteCount,
+      headerByteCount: header.meta.byteOffset + header.meta.byteCount,
     })
   }
 }

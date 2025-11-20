@@ -53,7 +53,7 @@ export async function csvDataFrame(params: Params): Promise<DataFrame> {
     ? cache.rowCount
     : averageRowByteCount === 0 || averageRowByteCount === undefined
       ? 0
-      : Math.ceil(byteLength / averageRowByteCount)
+      : Math.round((byteLength - cache.headerByteCount) / averageRowByteCount)
   // TODO(SL): add metadata to tell if the number of rows is an estimate or exact?
   const columnDescriptors: DataFrame['columnDescriptors'] = cache.columnNames.map(name => ({ name }))
 
