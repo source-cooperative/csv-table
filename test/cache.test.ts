@@ -330,7 +330,7 @@ describe('CSVCache', () => {
       }).toThrow(expected)
     })
 
-    it('shoud merge two adjacent ranges when storing rows', () => {
+    it('should merge two adjacent ranges when storing rows', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
