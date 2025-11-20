@@ -624,5 +624,23 @@ describe('CSVCache', () => {
 
       expect(cache.getNextMissingRow(options)).toEqual(expected)
     })
+
+    it('should return undefined when all rows are cached', () => {
+      const cache = new CSVCache({
+        columnNames: ['col1', 'col2', 'col3'],
+        byteLength: 100,
+        initialByteCount: 10,
+        delimiter: ',',
+        newline: '\n' as const,
+      })
+      // Simulate caching all rows by storing a row that covers the entire byteLength
+      cache.store({
+        cells: ['x', 'y', 'z'],
+        byteOffset: 10,
+        byteCount: 90,
+      })
+      expect(cache.allRowsCached).toBe(true)
+      expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toBeUndefined()
+    })
   })
 })
