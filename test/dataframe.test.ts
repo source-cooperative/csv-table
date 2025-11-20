@@ -123,7 +123,7 @@ describe('csvDataFrame', () => {
       revoke()
     })
 
-    it('should ignore rows with only whitespace and delimitersbefore the header', async () => {
+    it('should ignore rows with only whitespace and delimiters before the header', async () => {
       const text = '\n\t\n , , \n,,\na,b,c\n1,2,3\n4,5,6\n7,8,9\n'
       const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
