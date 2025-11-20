@@ -267,7 +267,6 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
       }
 
       // else, continue the loop
-      next = updatedNext
     }
 
     // Dispatch resolve event if some rows were fetched

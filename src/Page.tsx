@@ -1,7 +1,6 @@
 import { type DataFrame, HighTable } from 'hightable'
 import { type ReactNode } from 'react'
 
-import type { } from './dataframe.js'
 import Loading from './Loading.js'
 
 export interface PageProps {
