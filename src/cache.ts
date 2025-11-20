@@ -428,6 +428,12 @@ export class CSVCache {
 
     // try every empty range between cached rows
     let first = this.#serial.next
+
+    if (first.firstByte >= this.#byteLength) {
+      // No missing row if all rows are cached
+      return undefined
+    }
+
     for (const { firstRow, next } of [...this.#random, { firstRow: Infinity, next: { row: Infinity, firstByte: this.#byteLength } }]) {
       if (rowStart < first.row) {
         // ignore cached rows
@@ -438,6 +444,9 @@ export class CSVCache {
         return
       }
       if (rowStart < firstRow) {
+        // TODO(SL): in both cases, what to do if firstByte is beyond byteLength?
+        // Should we try to decrease it?
+
         // the first row is in this missing range
         if (rowStart === first.row || this.averageRowByteCount === undefined) {
           // if the start row is the same as the first row, we can use the first byte directly

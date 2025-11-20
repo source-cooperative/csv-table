@@ -158,8 +158,19 @@ export async function csvDataFrame(params: Params): Promise<DataFrame> {
       },
     })
 
+    if (cache.allRowsCached) {
+      // all rows are already cached
+      if (rowEnd > cache.rowCount) {
+        // requested rows are beyond the end of the file
+        throw new Error(`Requested rows are beyond the end of the file: ${rowEnd} > ${cache.rowCount}`)
+      }
+      // else nothing to do
+      return
+    }
+
     const maxLoops = (rowEnd - rowStart) + 10 // safety to avoid infinite loops
     let next = cache.getNextMissingRow({ rowStart, rowEnd })
+
     let i = 0
     while (next) {
       i++
