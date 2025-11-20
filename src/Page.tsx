@@ -45,7 +45,7 @@ export default function Page({
                 {' '}
                 row
                 {df.numRows > 1 ? 's' : ''}
-                {df.metadata?.isPartial ? ' (estimated)' : ''}
+                {df.metadata?.isNumRowsEstimated ? ' (estimated)' : ''}
               </span>
             )
           : null}

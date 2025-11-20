@@ -1,4 +1,3 @@
-// TODO(SL): should we return the dataframe after parsing one row, and then keep parsing the chunk, but triggering updates?)
 // TODO(SL): configure if the CSV has a header or not?
 // TODO(SL): evict old rows (or only cell contents?) if needed
 // TODO(SL): handle fetching (and most importantly storing) only part of the columns?
@@ -32,6 +31,8 @@ interface Params {
   initialRowCount?: number // number of rows to fetch at dataframe creation
 }
 
+export type CSVDataFrame = DataFrame<{ isNumRowsEstimated: boolean }>
+
 /**
  * Helpers to load a CSV file as a dataframe
  * @param params - params for creating the dataframe
@@ -41,7 +42,7 @@ interface Params {
  * @param params.initialRowCount - number of rows to fetch at dataframe creation
  * @returns DataFrame representing the CSV file
  */
-export async function csvDataFrame(params: Params): Promise<DataFrame> {
+export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
   const chunkSize = params.chunkSize ?? defaultChunkSize
   const initialRowCount = params.initialRowCount ?? defaultInitialRowCount
   const { url, byteLength } = params
@@ -54,7 +55,9 @@ export async function csvDataFrame(params: Params): Promise<DataFrame> {
     : averageRowByteCount === 0 || averageRowByteCount === undefined
       ? 0
       : Math.round((byteLength - cache.headerByteCount) / averageRowByteCount)
-  // TODO(SL): add metadata to tell if the number of rows is an estimate or exact?
+  const metadata = {
+    isNumRowsEstimated: !cache.allRowsCached,
+  }
   const columnDescriptors: DataFrame['columnDescriptors'] = cache.columnNames.map(name => ({ name }))
 
   /**
@@ -246,8 +249,6 @@ export async function csvDataFrame(params: Params): Promise<DataFrame> {
           break
         // TODO(SL) for example, it occurs when the estimated byte offset is beyond the end of the file.
         // To fix that, we could fetch more rows at the start to improve the estimation, then retry.
-        //
-        // Also: we could fetch from the end of the file to get the last rows (#antiserial).
         }
       }
 
@@ -285,6 +286,7 @@ export async function csvDataFrame(params: Params): Promise<DataFrame> {
   }
 
   return {
+    metadata,
     numRows,
     columnDescriptors,
     getCell,

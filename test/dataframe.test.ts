@@ -9,12 +9,12 @@ describe('csvDataFrame', () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
       // Includes the extra character ' ' to handle bug in Node.js (see toURL)
       const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
-      // TODO(SL): make it sync, by passing the header?
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
       })
       expect(df.numRows).toBe(3)
+      expect(df.metadata).toEqual({ isNumRowsEstimated: false })
       expect(df.columnDescriptors).toStrictEqual(['a', 'b', 'c'].map(name => ({ name })))
       revoke()
     })
@@ -37,6 +37,7 @@ describe('csvDataFrame', () => {
         byteLength: fileSize,
       })
       expect(df.numRows).toBe(0)
+      expect(df.metadata).toEqual({ isNumRowsEstimated: false })
       expect(df.columnDescriptors).toStrictEqual(['a'].map(name => ({ name })))
       expect(() => df.getRowNumber({ row: 0 })).toThrow()
       revoke()
@@ -68,6 +69,7 @@ describe('csvDataFrame', () => {
       })
       // with only one row loaded, the average row size is not accurate enough to estimate the number of rows
       expect(df.numRows).toBe(expectedRows) // the estimate is not perfect
+      expect(df.metadata).toEqual({ isNumRowsEstimated: true })
       revoke()
     })
 
