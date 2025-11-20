@@ -1,5 +1,9 @@
-import { type ReactNode } from "react";
+import { type ReactNode } from 'react'
 
+/**
+ * Welcome page with quick links to example CSV files.
+ * @returns Welcome page React node
+ */
 export default function Welcome(): ReactNode {
   return (
     <div id="welcome">
@@ -40,5 +44,5 @@ export default function Welcome(): ReactNode {
         </ul>
       </div>
     </div>
-  );
+  )
 }
