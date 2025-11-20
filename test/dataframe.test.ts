@@ -390,7 +390,7 @@ describe('csvDataFrame', () => {
     })
 
     it('will fetch an incorrect row if the average row size had been overestimated', async () => {
-      const text = 'a,b,c\n11,22,33\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
+      const text = 'a,b,c\n111,222,333\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
       const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,

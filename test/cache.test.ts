@@ -622,9 +622,10 @@ describe('CSVCache', () => {
 
     it.each([
       { options: { rowStart: 0, rowEnd: 4 }, expected: { firstByte: 10, isEstimate: false } },
-      { options: { rowStart: 1, rowEnd: 4 }, expected: { firstByte: 18, isEstimate: true } },
+      { options: { rowStart: 1, rowEnd: 4 }, expected: { firstByte: 15, isEstimate: true } },
       { options: { rowStart: 2, rowEnd: 4 }, expected: { firstByte: 40, isEstimate: false } },
       { options: { rowStart: 3, rowEnd: 4 }, expected: { firstByte: 40, isEstimate: false } },
+      { options: { rowStart: 4, rowEnd: 5 }, expected: { firstByte: 45, isEstimate: true } },
     ])('should propose the next missing row correctly around a random range: %o', ({ options, expected }) => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
@@ -635,6 +636,8 @@ describe('CSVCache', () => {
       })
       // Stored row is in a random range, next.firstByte is 40
       cache.store({ byteOffset: 30, byteCount: 10, cells: ['x', 'y', 'z'] })
+      // the average row byte count is now 10
+      expect(cache.averageRowByteCount).toBe(10)
       // the estimated row number is 2
       expect(cache.getRowNumber({ row: 2 })).toEqual({ value: 2 })
 

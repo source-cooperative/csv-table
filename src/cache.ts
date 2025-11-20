@@ -2,10 +2,6 @@ import type { Newline, ParseResult } from 'csv-range'
 
 import { checkNonNegativeInteger } from './helpers.js'
 
-// TODO(SL): store the byte ranges for the rows, to be able to retrieve evicted rows later
-// TODO(SL): store the byte ranges for the lines, not only the rows?
-// TODO(SL): keep track of the errors
-
 /**
  * A byte range in a CSV file, with the parsed rows
  */
@@ -275,7 +271,6 @@ export class CSVCache {
    * Update the average row byte count based on the cached rows
    */
   #updateAverageRowByteCount(): void {
-    // TODO(SL): after updating the average, we could try to re-assign row numbers in the random ranges to reduce overlaps
     const rowByteCount = this.#serial.rowByteCount + this.#random.reduce((sum, range) => sum + range.rowByteCount, 0)
     const rowCount = this.#serial.rowCount + this.#random.reduce((sum, range) => sum + range.rowCount, 0)
     if (rowCount === 0) {
@@ -379,7 +374,6 @@ export class CSVCache {
     if (this.#getCells({ row }) === undefined) {
       return undefined
     }
-    // TODO(SL): how could we convey the fact that the row number is approximate (in #random)?
     return { value: row }
   }
 
@@ -505,9 +499,8 @@ export class CSVCache {
           // Same if we cannot estimate positions
           return { firstByte: first.firstByte, isEstimate: false }
         }
-        // estimate the byte position based on the average row byte count
-        const margin = 2 // TODO(SL): evaluate if we need them, and if so, how many. For now: cover \r\n.
-        const delta = Math.floor((rowStart - first.row) * this.averageRowByteCount - margin)
+        // estimate the byte position based on the average row byte count, trying to get the middle of the previous row
+        const delta = Math.floor((rowStart - first.row - 0.5) * this.averageRowByteCount)
         return {
           firstByte: first.firstByte + Math.max(0, delta),
           isEstimate: true,

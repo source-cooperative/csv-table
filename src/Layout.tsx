@@ -19,7 +19,7 @@ interface LayoutProps {
 export default function Layout({
   children,
   className,
-  // error, // TODO(SL): implement error bar
+  // error,
 }: LayoutProps): ReactNode {
   return (
     <>

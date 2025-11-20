@@ -1,7 +1,3 @@
-// TODO(SL): configure if the CSV has a header or not?
-// TODO(SL): evict old rows (or only cell contents?) if needed
-// TODO(SL): handle fetching (and most importantly storing) only part of the columns?
-// Note that source.coop does not support negative ranges for now https://github.com/source-cooperative/data.source.coop/issues/57 (for https://github.com/hyparam/hightable/issues/298#issuecomment-3381567614)
 import { isEmptyLine, parseURL } from 'csv-range'
 import type {
   DataFrame,

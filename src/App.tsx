@@ -70,7 +70,6 @@ export default function App(): ReactNode {
   const prepareDataFrame = useCallback(async function ({ url, byteLength }: { url: string, byteLength: number }) {
     const df = await csvDataFrame({ url, byteLength })
     dispatch({ type: 'setDataFrame', df })
-    // sortableDataFrame( ... // TODO(SL): enable sorting? (requires all the data - maybe on small data?)
   }, [])
 
   const setUrl = useCallback((url: string) => {
