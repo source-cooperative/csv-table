@@ -16,7 +16,7 @@ import {
 import { CSVCache } from './cache'
 import { checkNonNegativeInteger } from './helpers.js'
 
-const defaultChunkSize = 500 * 1024 // 500 KB
+const defaultChunkSize = 100 * 1024 // 100 KB
 const defaultInitialRowCount = 500
 // const paddingRowCount = 20 // fetch a bit before and after the requested range, to avoid cutting rows
 
@@ -163,8 +163,7 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
     }
 
     const prefixRowsToEstimate = 3 // number of rows to ignore at the start when estimating
-    const maxLoops = (rowEnd - rowStart + prefixRowsToEstimate) * 2 + 10 // safety to avoid infinite loops
-    let hasFetchedSomeRows = false
+    const maxLoops = (rowEnd - rowStart + prefixRowsToEstimate) * 10 + 10 // safety to avoid infinite loops
 
     // fetch all missing ranges
     let next = cache.getNextMissingRow({ rowStart, rowEnd, prefixRowsToEstimate })
@@ -222,7 +221,10 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
             byteCount: result.meta.byteCount,
             firstRow,
           })
-          hasFetchedSomeRows ||= !isEmpty
+          if (!isEmpty && firstRow >= rowStart && firstRow < rowEnd) {
+            // emit event for newly fetched row within the requested range
+            eventTarget.dispatchEvent(new CustomEvent('resolve'))
+          }
         }
 
         // next row
@@ -247,12 +249,6 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
         // Break to avoid infinite loop
         break
       }
-    }
-
-    // Dispatch resolve event if some rows were fetched
-    // We do it only at the end, because the row numbers might change while fetching, producing instable behavior.
-    if (hasFetchedSomeRows) {
-      eventTarget.dispatchEvent(new CustomEvent('resolve'))
     }
   }
 

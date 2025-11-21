@@ -53,6 +53,15 @@ export default function Welcome({ setUrl }: Props): ReactNode {
               <p>100K food images dataset for computer vision tasks (26MB).</p>
             </a>
           </li>
+          <li>
+            <a
+              className="huggingface"
+              href="?url=https://huggingface.co/datasets/Mosab-Rezaei/19th-century-novelists/resolve/main/Dataset%20-%20Five%20Authors%20.csv"
+            >
+              <h2>19th-century novelists' sentences</h2>
+              <p>115K rows with long JSON objects (944MB).</p>
+            </a>
+          </li>
         </ul>
       </div>
     </div>
