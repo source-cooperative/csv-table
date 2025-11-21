@@ -38,7 +38,7 @@ export default function Welcome({ setUrl }: Props): ReactNode {
           <li>
             <a
               className="source"
-              href="?url=https://data.source.coop/severo/csv-papaparse-test-files/verylongsample.csv"
+              href="?url=https://data.source.coop/severo/csv-papaparse-test-files/verylong-sample.csv"
             >
               <h2>PapaParse test files</h2>
               <p>Five CSV files used to test the PapaParse library.</p>
@@ -51,6 +51,15 @@ export default function Welcome({ setUrl }: Props): ReactNode {
             >
               <h2>MM-Food-100K</h2>
               <p>100K food images dataset for computer vision tasks (26MB).</p>
+            </a>
+          </li>
+          <li>
+            <a
+              className="huggingface"
+              href="?url=https://huggingface.co/datasets/Mosab-Rezaei/19th-century-novelists/resolve/main/Dataset%20-%20Five%20Authors%20.csv"
+            >
+              <h2>19th-century novelists' sentences</h2>
+              <p>115K rows with long JSON objects (944MB).</p>
             </a>
           </li>
         </ul>

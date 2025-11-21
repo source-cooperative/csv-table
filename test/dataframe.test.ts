@@ -449,7 +449,7 @@ describe('csvDataFrame', () => {
     })
 
     it('fetches incorrect rows if the row estimation is incorrect', async () => {
-      const text = 'a,b,c\n111111,222222,333333\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n16,17,18\n19,20,21\n'
+      const text = 'a,b,c\n111111,222222,333333\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n16,17,18\n19,20,21\n22,23,24\n'
       const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
@@ -468,19 +468,17 @@ describe('csvDataFrame', () => {
       await df.fetch?.({ rowStart: 2, rowEnd: 6 })
 
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      // erroneously got row 3 instead of row 2, due to the overestimation of the average row size, even after correcting it once
-      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '10' })
-      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '13' })
-      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '16' })
-      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '19' })
-      // Note: the four rows were fetched, but in multiple loops, since only three of
-      // them were fetched in the first pass, as the parsing reached the end of the file
+      // erroneously got row 4 instead of row 2, due to the overestimation of the average row size
+      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '13' })
+      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '16' })
+      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '19' })
+      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '22' })
       expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
       revoke()
     })
 
     it('does not fetch all the rows, if the row estimation is incorrect', async () => {
-      const text = 'a,b,c\n111111,222222,333333\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n16,17,18\n19,20,21\n'
+      const text = 'a,b,c\n111111,222222,333333\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n16,17,18\n19,20,21\n22,23,24\n'
       const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
@@ -499,19 +497,17 @@ describe('csvDataFrame', () => {
       await df.fetch?.({ rowStart: 2, rowEnd: 7 })
 
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      // erroneously got row 3 instead of row 2, due to the overestimation of the average row size, even after correcting it once
-      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '10' })
-      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '13' })
-      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '16' })
-      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '19' })
-      // the four rows were fetched, even if only three of them were fetched in the first pass, because the parsing reached the end of the file
-
+      // erroneously got row 4 instead of row 2, due to the overestimation of the average row size
+      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '13' })
+      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '16' })
+      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '19' })
+      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '22' })
       // the last row, row 6, was not fetched, even if it was requested
       expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
       revoke()
     })
 
-    it('dispatches one "resolve" event when fetch is complete and rows have been resolved', async () => {
+    it('dispatches one "resolve" event per stored row in the range', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
       const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
@@ -526,14 +522,14 @@ describe('csvDataFrame', () => {
       })
 
       await df.fetch?.({ rowStart: 2, rowEnd: 4 })
-      expect(resolveEventCount).toBe(1)
+      expect(resolveEventCount).toBe(2)
 
       // No event because rows are already resolved
       await df.fetch?.({ rowStart: 2, rowEnd: 4 })
-      expect(resolveEventCount).toBe(1)
+      expect(resolveEventCount).toBe(2)
 
       await df.fetch?.({ rowStart: 2, rowEnd: 6 })
-      expect(resolveEventCount).toBe(2)
+      expect(resolveEventCount).toBe(3)
 
       revoke()
     })

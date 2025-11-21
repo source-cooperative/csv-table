@@ -151,9 +151,9 @@ describe('CSVCache', () => {
       expect(cache.numRowsEstimate).toEqual({ numRows: 0, isEstimate: true })
       expect(cache.getCell({ row: 0, column: 0 })).toBeUndefined()
       expect(cache.getRowNumber({ row: 0 })).toBeUndefined()
-      expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toEqual({ firstByte: 15, isEstimate: false })
+      expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toEqual({ firstByteToStore: 15, firstByteToFetch: 15, firstRow: 0 })
       // As no rows are cached, any range should return the same firstByte
-      expect(cache.getNextMissingRow({ rowStart: 100, rowEnd: 200 })).toEqual({ firstByte: 15, isEstimate: false })
+      expect(cache.getNextMissingRow({ rowStart: 100, rowEnd: 200 })).toEqual({ firstByteToStore: 15, firstByteToFetch: 15, firstRow: 0 })
     })
 
     it('should initialize from header correctly', () => {
@@ -176,9 +176,9 @@ describe('CSVCache', () => {
       expect(cache.averageRowByteCount).toBe(undefined)
       expect(cache.getCell({ row: 0, column: 0 })).toBeUndefined()
       expect(cache.getRowNumber({ row: 0 })).toBeUndefined()
-      expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toEqual({ firstByte: 15, isEstimate: false })
+      expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toEqual({ firstByteToStore: 15, firstByteToFetch: 15, firstRow: 0 })
       // As no rows are cached, any range should return the same firstByte
-      expect(cache.getNextMissingRow({ rowStart: 100, rowEnd: 200 })).toEqual({ firstByte: 15, isEstimate: false })
+      expect(cache.getNextMissingRow({ rowStart: 100, rowEnd: 200 })).toEqual({ firstByteToStore: 15, firstByteToFetch: 15, firstRow: 0 })
     })
 
     it.each([
@@ -211,6 +211,7 @@ describe('CSVCache', () => {
         cells: ['a', 'b', 'c'],
         byteOffset: 15,
         byteCount: 0, // not forbidden
+        firstRow: 0,
       })
       // The average row byte count should be 0
       expect(cache.averageRowByteCount).toBe(0)
@@ -219,6 +220,7 @@ describe('CSVCache', () => {
         cells: ['d', 'e', 'f'],
         byteOffset: 15,
         byteCount: 20,
+        firstRow: 1,
       })
       // The average row byte count should be 10 now
       expect(cache.averageRowByteCount).toBe(10)
@@ -239,6 +241,7 @@ describe('CSVCache', () => {
         cells: ['d', 'e', 'f'],
         byteOffset: 44,
         byteCount: 7,
+        firstRow: 3,
       })
       // the average row byte count should be 9 now
       expect(cache.averageRowByteCount).toBe(9)
@@ -252,6 +255,7 @@ describe('CSVCache', () => {
       cache.store({
         byteOffset: 60,
         byteCount: 5,
+        firstRow: 4,
       })
       expect(cache.averageRowByteCount).toBe(9)
     })
@@ -270,11 +274,13 @@ describe('CSVCache', () => {
         cells: ['a', 'b', 'c'],
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       cache.store({
         cells: ['d', 'e', 'f'],
         byteOffset: 20,
         byteCount: 10,
+        firstRow: 1,
       })
       expect(cache.allRowsCached).toBe(false)
       // Simulate caching all rows by adjusting byteLength and storing a row at the end
@@ -282,6 +288,7 @@ describe('CSVCache', () => {
         cells: ['x', 'y', 'z'],
         byteOffset: 30,
         byteCount: 70,
+        firstRow: 2,
       })
       expect(cache.allRowsCached).toBe(true)
       expect(cache.numRowsEstimate).toEqual({ numRows: 3, isEstimate: false })
@@ -305,6 +312,7 @@ describe('CSVCache', () => {
           cells: ['a', 'b', 'c'],
           byteOffset,
           byteCount,
+          firstRow: 0,
         })
       }).toThrow()
     })
@@ -324,9 +332,9 @@ describe('CSVCache', () => {
         newline: '\n' as const,
       })
       // Store an initial row
-      cache.store(initialRow)
+      cache.store({ ...initialRow, firstRow: 0 })
       expect(() => {
-        cache.store(row)
+        cache.store({ ...row, firstRow: 1 })
       }).toThrow(expected)
     })
 
@@ -343,12 +351,14 @@ describe('CSVCache', () => {
         cells: ['a', 'b', 'c'],
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       // Store third row, creating a new random range
       cache.store({
         cells: ['e', 'f', 'g'],
         byteOffset: 40,
         byteCount: 60,
+        firstRow: 2,
       })
       // At this point, we should have two ranges, and not all the rows have been cached
       expect(cache.allRowsCached).toBe(false)
@@ -358,6 +368,7 @@ describe('CSVCache', () => {
         cells: ['d', 'e', 'f'],
         byteOffset: 20,
         byteCount: 20,
+        firstRow: 1,
       })
       // now, the cache should include all the rows
       expect(cache.allRowsCached).toBe(true)
@@ -377,12 +388,14 @@ describe('CSVCache', () => {
         cells: ['d', 'e', 'f'],
         byteOffset: 40,
         byteCount: 10,
+        firstRow: 3,
       })
       // Prepend a row to the random range
       cache.store({
         cells: ['a', 'b', 'c'],
         byteOffset: 30,
         byteCount: 10,
+        firstRow: 2,
       })
       // Check that both rows are stored correctly
       expect(cache.getCell({ row: 2, column: 0 })).toStrictEqual({ value: 'a' })
@@ -405,16 +418,19 @@ describe('CSVCache', () => {
       cache.store({
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       // Store second row to create second random range
       cache.store({
         byteOffset: 30,
         byteCount: 10,
+        firstRow: 1,
       })
       // Store third row to create third random range
       cache.store({
         byteOffset: 50,
         byteCount: 10,
+        firstRow: 2,
       })
     })
 
@@ -430,16 +446,19 @@ describe('CSVCache', () => {
       cache.store({
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       // Store third row to create second random range
       cache.store({
         byteOffset: 50,
         byteCount: 10,
+        firstRow: 2,
       })
       // Now store the second row in between
       cache.store({
         byteOffset: 30,
         byteCount: 10,
+        firstRow: 1,
       })
     })
   })
@@ -471,6 +490,7 @@ describe('CSVCache', () => {
         cells: ['a', 'b', 'c'],
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       // Missing row
       expect(cache.getCell({ row: 1, column: 0 })).toBeUndefined()
@@ -489,6 +509,7 @@ describe('CSVCache', () => {
         cells: ['a', 'b'], // missing last column
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       // Missing column
       expect(cache.getCell({ row: 0, column: 2 })).toStrictEqual({ value: '' })
@@ -507,6 +528,7 @@ describe('CSVCache', () => {
         cells: ['a', 'b', 'c'],
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       // Existing row and columns
       expect(cache.getCell({ row: 0, column: 0 })).toStrictEqual({ value: 'a' })
@@ -540,6 +562,7 @@ describe('CSVCache', () => {
         cells: ['a', 'b', 'c'],
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       // Missing row
       expect(cache.getRowNumber({ row: 1 })).toBeUndefined()
@@ -558,42 +581,19 @@ describe('CSVCache', () => {
         cells: ['a', 'b', 'c'],
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       // Existing row
       expect(cache.getRowNumber({ row: 0 })).toStrictEqual({ value: 0 })
-    })
-
-    it('should estimate row numbers for random ranges', () => {
-      const cache = new CSVCache({
-        columnNames: ['col1', 'col2', 'col3'],
-        byteLength: 200,
-        headerByteCount: 10,
-        delimiter: ',',
-        newline: '\n' as const,
-      })
-      // Store a row to create a random range
-      cache.store({
-        cells: ['d', 'e', 'f'],
-        byteOffset: 40,
-        byteCount: 10,
-      })
-      // Store a row to create another random range
-      cache.store({
-        cells: ['d', 'e', 'f'],
-        byteOffset: 60,
-        byteCount: 10,
-      })
-      // the estimated row number for the last row should be 4
-      expect(cache.getRowNumber({ row: 5 })).toEqual({ value: 5 })
     })
   })
 
   describe('getNextMissingRow', () => {
     it.each([
-      { range: { rowStart: 0, rowEnd: 10 } },
-      { range: { rowStart: 5, rowEnd: 15 } },
-      { range: { rowStart: 10, rowEnd: 20 } },
-    ])('should propose the first byte if the cache is empty since it cannot estimate positions: %o', ({ range }) => {
+      { range: { rowStart: 0, rowEnd: 10 }, expectedFirstRow: 0 },
+      { range: { rowStart: 5, rowEnd: 15 }, expectedFirstRow: 0 },
+      { range: { rowStart: 10, rowEnd: 20 }, expectedFirstRow: 0 },
+    ])('should propose the first byte if the cache is empty since it cannot estimate positions: %o', ({ range, expectedFirstRow }) => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 200,
@@ -601,13 +601,13 @@ describe('CSVCache', () => {
         delimiter: ',',
         newline: '\n' as const,
       })
-      expect(cache.getNextMissingRow(range)).toEqual({ firstByte: 10, isEstimate: false })
+      expect(cache.getNextMissingRow(range)).toEqual({ firstByteToFetch: 10, firstByteToStore: 10, firstRow: expectedFirstRow })
     })
 
     it.each([
       { options: { rowStart: 0, rowEnd: 0 }, expected: undefined },
-      { options: { rowStart: 0, rowEnd: 2 }, expected: { firstByte: 20, isEstimate: false } },
-      { options: { rowStart: 1, rowEnd: 2 }, expected: { firstByte: 20, isEstimate: false } },
+      { options: { rowStart: 0, rowEnd: 2 }, expected: { firstByteToFetch: 20, firstByteToStore: 20, firstRow: 1 } },
+      { options: { rowStart: 1, rowEnd: 2 }, expected: { firstByteToFetch: 20, firstByteToStore: 20, firstRow: 1 } },
       { options: { rowStart: 2, rowEnd: 2 }, expected: undefined },
       { options: { rowStart: 3, rowEnd: 2 }, expected: undefined },
     ])('should propose the next missing row correctly after #serial range: %o', ({ options, expected }) => {
@@ -619,16 +619,16 @@ describe('CSVCache', () => {
         newline: '\n' as const,
       })
       // Stored row is in the #serial range, next.firstByte is 20
-      cache.store({ byteOffset: 10, byteCount: 10, cells: ['x', 'y', 'z'] })
+      cache.store({ byteOffset: 10, byteCount: 10, cells: ['x', 'y', 'z'], firstRow: 0 })
       expect(cache.getNextMissingRow(options)).toEqual(expected)
     })
 
     it.each([
-      { options: { rowStart: 0, rowEnd: 4 }, expected: { firstByte: 10, isEstimate: false } },
-      { options: { rowStart: 1, rowEnd: 4 }, expected: { firstByte: 15, isEstimate: true } },
-      { options: { rowStart: 2, rowEnd: 4 }, expected: { firstByte: 40, isEstimate: false } },
-      { options: { rowStart: 3, rowEnd: 4 }, expected: { firstByte: 40, isEstimate: false } },
-      { options: { rowStart: 4, rowEnd: 5 }, expected: { firstByte: 45, isEstimate: true } },
+      { options: { rowStart: 0, rowEnd: 4 }, expected: { firstByteToStore: 10, firstByteToFetch: 10, firstRow: 0 } },
+      { options: { rowStart: 1, rowEnd: 4 }, expected: { firstByteToStore: 20, firstByteToFetch: 0, firstRow: 1 } },
+      { options: { rowStart: 2, rowEnd: 4 }, expected: { firstByteToStore: 40, firstByteToFetch: 40, firstRow: 3 } },
+      { options: { rowStart: 3, rowEnd: 4 }, expected: { firstByteToStore: 40, firstByteToFetch: 40, firstRow: 3 } },
+      { options: { rowStart: 4, rowEnd: 5 }, expected: { firstByteToStore: 50, firstByteToFetch: 20, firstRow: 4 } },
     ])('should propose the next missing row correctly around a random range: %o', ({ options, expected }) => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
@@ -638,7 +638,7 @@ describe('CSVCache', () => {
         newline: '\n' as const,
       })
       // Stored row is in a random range, next.firstByte is 40
-      cache.store({ byteOffset: 30, byteCount: 10, cells: ['x', 'y', 'z'] })
+      cache.store({ byteOffset: 30, byteCount: 10, cells: ['x', 'y', 'z'], firstRow: 2 })
       // the average row byte count is now 10
       expect(cache.averageRowByteCount).toBe(10)
       // the estimated row number is 2
@@ -660,6 +660,7 @@ describe('CSVCache', () => {
         cells: ['x', 'y', 'z'],
         byteOffset: 10,
         byteCount: 90,
+        firstRow: 0,
       })
       expect(cache.allRowsCached).toBe(true)
       expect(cache.getNextMissingRow({ rowStart: 0, rowEnd: 10 })).toBeUndefined()
@@ -674,13 +675,13 @@ describe('CSVCache', () => {
         newline: '\n' as const,
       })
       // Store rows 0, 1, and 2
-      cache.store({ byteOffset: 10, byteCount: 10, cells: ['a', 'b', 'c'] }) // row 0
-      cache.store({ byteOffset: 20, byteCount: 10, cells: ['d', 'e', 'f'] }) // row 1
-      cache.store({ byteOffset: 30, byteCount: 10, cells: ['g', 'h', 'i'] }) // row 2
+      cache.store({ byteOffset: 10, byteCount: 10, cells: ['a', 'b', 'c'], firstRow: 0 }) // row 0
+      cache.store({ byteOffset: 20, byteCount: 10, cells: ['d', 'e', 'f'], firstRow: 1 }) // row 1
+      cache.store({ byteOffset: 30, byteCount: 10, cells: ['g', 'h', 'i'], firstRow: 2 }) // row 2
 
       expect(cache.getNextMissingRow({ rowStart: 2, rowEnd: 2 })).toBeUndefined()
       expect(cache.getNextMissingRow({ rowStart: 2, rowEnd: 3 })).toBeUndefined()
-      expect(cache.getNextMissingRow({ rowStart: 2, rowEnd: 4 })).toStrictEqual({ firstByte: 40, isEstimate: false })
+      expect(cache.getNextMissingRow({ rowStart: 2, rowEnd: 4 })).toStrictEqual({ firstByteToStore: 40, firstByteToFetch: 40, firstRow: 3 })
     })
   })
 
@@ -698,15 +699,18 @@ describe('CSVCache', () => {
         cells: ['a', 'b', 'c'],
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       cache.store({
         byteOffset: 60,
         byteCount: 10,
+        firstRow: 1,
       })
       cache.store({
         cells: ['a', 'b', 'c'],
         byteOffset: 80,
         byteCount: 10,
+        firstRow: 1,
       })
       expect(cache.isStored({ byteOffset: 10 })).toBe(true)
       expect(cache.isStored({ byteOffset: 20 })).toBe(false)
@@ -735,6 +739,7 @@ describe('CSVCache', () => {
       cache.store({
         byteOffset: 10,
         byteCount: 10,
+        firstRow: 0,
       })
       expect(cache.averageRowByteCount).toBeUndefined()
       expect(cache.rowCount).toBe(0)
@@ -747,6 +752,7 @@ describe('CSVCache', () => {
         cells: ['a', 'b', 'c'],
         byteOffset: 20,
         byteCount: 10,
+        firstRow: 0,
       })
       expect(cache.averageRowByteCount).toBe(10)
       expect(cache.rowCount).toBe(1)
@@ -755,6 +761,7 @@ describe('CSVCache', () => {
         cells: ['d', 'e', 'f'],
         byteOffset: 50,
         byteCount: 70,
+        firstRow: 3,
       })
       expect(cache.rowCount).toBe(2)
       // its row index is estimated to be 3, because it has been computed with the current average (10)

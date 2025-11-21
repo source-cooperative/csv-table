@@ -16,7 +16,7 @@ import {
 import { CSVCache } from './cache'
 import { checkNonNegativeInteger } from './helpers.js'
 
-const defaultChunkSize = 500 * 1024 // 500 KB
+const defaultChunkSize = 100 * 1024 // 100 KB
 const defaultInitialRowCount = 500
 // const paddingRowCount = 20 // fetch a bit before and after the requested range, to avoid cutting rows
 
@@ -162,117 +162,97 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
       return
     }
 
-    const maxLoops = (rowEnd - rowStart) + 10 // safety to avoid infinite loops
-    let hasFetchedSomeRows = false
+    const prefixRowsToEstimate = 3 // number of rows to ignore at the start when estimating
+    const maxLoops = (rowEnd - rowStart + prefixRowsToEstimate) * 10 + 10 // safety to avoid infinite loops
 
-    let i = 0
-    while (true) {
-      // fetch all missing ranges
-      i++
-      let next = cache.getNextMissingRow({ rowStart, rowEnd })
-      let j = 0
-      while (next) {
+    // fetch all missing ranges
+    let next = cache.getNextMissingRow({ rowStart, rowEnd, prefixRowsToEstimate })
+    let j = 0
+    while (next) {
       // fetch next missing range
-        j++
-        // v8 ignore if -- @preserve
-        if (j > maxLoops) {
+      j++
+      // v8 ignore if -- @preserve
+      if (j > maxLoops) {
         // should not happen
-          throw new Error('Maximum fetch loops exceeded')
-        }
-        const firstByte = next.firstByte
-        const ignoreFirstRow = next.isEstimate // if it's an estimate, we may be cutting a row
-        let isFirstRow = true
-        let k = 0
-        for await (const result of parseURL(url, {
-          delimiter: cache.delimiter,
-          newline: cache.newline,
-          chunkSize,
-          firstByte,
-          lastByte: byteLength - 1,
-        })) {
-          checkSignal(signal)
-          k++
-          // v8 ignore if -- @preserve
-          if (k > maxLoops) {
+        console.debug('Debug info, maximum fetch loops exceeded: ', { rowStart, rowEnd, next, cache })
+        throw new Error('Maximum fetch loops exceeded')
+      }
+
+      const { firstByteToFetch: maxFirstByteToFetch, firstByteToStore, firstRow } = next
+      const alignOnChunkSize = maxFirstByteToFetch !== firstByteToStore // if we are estimating, align on chunk size, to save requests
+      const firstByteToFetch = alignOnChunkSize
+        ? Math.floor(maxFirstByteToFetch / chunkSize) * chunkSize
+        : maxFirstByteToFetch
+      const initialState = firstByteToFetch !== firstByteToStore ? 'detect' : 'default'
+
+      let k = 0
+      let row = firstRow
+      for await (const result of parseURL(url, {
+        delimiter: cache.delimiter,
+        newline: cache.newline,
+        chunkSize,
+        firstByte: firstByteToFetch,
+        lastByte: byteLength - 1,
+        initialState,
+      })) {
+        checkSignal(signal)
+        k++
+        // v8 ignore if -- @preserve
+        if (k > maxLoops) {
           // should not happen
-            throw new Error('Maximum parse loops exceeded')
-          }
-          if (isFirstRow && ignoreFirstRow) {
-            isFirstRow = false
-            continue
-          }
-          if (result.meta.byteCount === 0) {
+          console.debug('Debug info, maximum parse loops exceeded: ', { rowStart, rowEnd, next, cache })
+          throw new Error('Maximum parse loops exceeded')
+        }
+        if (result.meta.byteOffset < firstByteToStore) {
+          continue
+        }
+        if (result.meta.byteCount === 0) {
           // no progress, avoid infinite loop
           // it's the last line in the file and it's empty
-            next = undefined
-            break
-          }
-
-          // Store the new row in the cache
-          if (!cache.isStored({ byteOffset: result.meta.byteOffset })) {
-            const isEmpty = isEmptyLine(result.row)
-            cache.store({
-              cells: isEmpty ? undefined : result.row,
-              byteOffset: result.meta.byteOffset,
-              byteCount: result.meta.byteCount,
-            })
-            hasFetchedSomeRows ||= !isEmpty
-          }
-
-          // next row
-          next = cache.getNextMissingRow({ rowStart, rowEnd })
-          if (!next) {
-          // no more missing ranges
-            break
-          }
-          const nextByte = result.meta.byteOffset + result.meta.byteCount
-          if (next.firstByte > nextByte + chunkSize) {
-          // the next missing range is beyond the current chunk, so we can stop the current loop and start a new fetch
-            break
-          }
-          // otherwise, continue fetching in the current loop,
-          // Note that some rows might already be cached. It's ok since fetching takes more time than parsing.
-        }
-
-        if (k === 0) {
-          // No progress (no row fetched in this missing range)
-          // Break to avoid infinite loop
+          next = undefined
           break
-          // For example, it occurs when the estimated byte offset is beyond the end of the file.
-          // To fix that, we could fetch more rows at the start to improve the estimation, then retry.
-          // See https://github.com/source-cooperative/csv-table/issues/11
         }
-      }
 
-      // update the cache stats (average row size, firstRow of each random access block, etc.)
-      cache.updateRowEstimates()
+        // Store the new row in the cache
+        const isEmpty = isEmptyLine(result.row)
+        if (!cache.isStored({ byteOffset: result.meta.byteOffset })) {
+          cache.store({
+            cells: isEmpty ? undefined : result.row,
+            byteOffset: result.meta.byteOffset,
+            byteCount: result.meta.byteCount,
+            firstRow: row,
+          })
+          if (!isEmpty && row >= rowStart && row < rowEnd) {
+            // emit event for newly fetched row within the requested range
+            eventTarget.dispatchEvent(new CustomEvent('resolve'))
+          }
+        }
+        if (!isEmpty) {
+          row++
+        }
 
-      // and then check again if all the requested rows have been fetched
-      const updatedNext = cache.getNextMissingRow({ rowStart, rowEnd })
-
-      // if all the requested rows are now cached, we can exit
-      if (!updatedNext) {
-        break
-      }
-
-      // if we made no progress, we can also exit to avoid infinite loops
-      if (next && updatedNext.firstByte === next.firstByte) {
-        break
+        // next row
+        next = cache.getNextMissingRow({ rowStart, rowEnd, prefixRowsToEstimate })
+        if (!next) {
+          // no more missing ranges
+          break
+        }
+        const nextByte = result.meta.byteOffset + result.meta.byteCount
+        if (next.firstByteToFetch > nextByte + chunkSize) {
+          // the next missing range is beyond the current chunk, so we can stop the current loop and start a new fetch
+          break
+        }
+        // otherwise, continue fetching in the current loop,
+        // Note that some rows might already be cached. It's ok since fetching takes more time than parsing.
       }
 
       // v8 ignore if -- @preserve
-      if (i >= maxLoops) {
-        // should not happen
-        throw new Error('Maximum estimation loops exceeded')
+      if (k === 0) {
+        // Should not happen
+        // No progress (no row fetched in this missing range)
+        // Break to avoid infinite loop
+        break
       }
-
-      // else, continue the loop
-    }
-
-    // Dispatch resolve event if some rows were fetched
-    // We do it only at the end, because the row numbers might change while fetching, producing instable behavior.
-    if (hasFetchedSomeRows) {
-      eventTarget.dispatchEvent(new CustomEvent('resolve'))
     }
   }
 
@@ -305,6 +285,7 @@ async function initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRo
   let cache: CSVCache | undefined = undefined
 
   // Fetch the first rows, including the header
+  let row = 0
   for await (const result of parseURL(url, { chunkSize, lastByte: byteLength - 1 })) {
     if (cache === undefined) {
       if (isEmptyLine(result.row, { greedy: true })) {
@@ -325,7 +306,9 @@ async function initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRo
         cells: isEmptyLine(result.row) ? undefined : result.row,
         byteOffset: result.meta.byteOffset,
         byteCount: result.meta.byteCount,
+        firstRow: row,
       })
+      row++
     }
   }
 
