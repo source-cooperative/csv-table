@@ -399,9 +399,10 @@ export class CSVCache {
    * @param row The row to store.
    * @param row.byteOffset The byte offset of the row in the file.
    * @param row.byteCount The number of bytes of the row.
+   * @param row.firstRow The first row index (0-based) used if a new range is created.
    * @param row.cells The cells of the row. If not provided, the row is considered ignored and not cached (i.e., empty or header).
    */
-  store(row: { byteOffset: number, byteCount: number, cells?: string[] }): void {
+  store(row: { byteOffset: number, byteCount: number, firstRow: number, cells?: string[] }): void {
     checkNonNegativeInteger(row.byteOffset)
     checkNonNegativeInteger(row.byteCount)
     if (row.byteOffset + row.byteCount > this.#byteLength) {
@@ -444,15 +445,8 @@ export class CSVCache {
       }
 
       // create a new random range between previousRange and nextRange
-      const averageRowByteCount = this.averageRowByteCount
-        ? this.averageRowByteCount
-        : row.byteCount // use the current row byte count if we don't have an average yet (0 or undefined)
-      const firstRow = Math.max(
-        Math.round(previousRange.next.row + (row.byteOffset - previousRange.next.firstByte) / averageRowByteCount),
-        previousRange.next.row + 1, // ensure at least one row gap
-      )
-      // Note that we might have a situation where firstRow overlaps with nextRange.previous.row. It will be fixed the next time we update the average row byte count.
-      const newRange = new CSVRange({ firstByte: row.byteOffset, firstRow })
+      // Note that we might have a situation where firstRow overlaps with other ranges.
+      const newRange = new CSVRange({ firstByte: row.byteOffset, firstRow: row.firstRow })
       newRange.append(row)
       this.#random.splice(i, 0, newRange)
       break
@@ -483,52 +477,65 @@ export class CSVCache {
    * @param options Options
    * @param options.rowStart The start row index (0-based, inclusive)
    * @param options.rowEnd The end row index (0-based, exclusive)
-   * @returns The first byte of the next missing row and if it's an estimate, or undefined if no missing row
+   * @param options.prefixRowsToEstimate Number of average prefix rows to prefetch when estimating (because the first row may be partial). Defaults to 3.
+   * @returns undefined if no missing row, or an object with:
+   *  - the first byte to start fetching data
+   *  - the first byte to store data (after ignoring some bytes)
+   *  - the expected row number of the first fetched row
    */
-  getNextMissingRow({ rowStart, rowEnd }: { rowStart: number, rowEnd: number }): { firstByte: number, isEstimate: boolean } | undefined {
+  getNextMissingRow({ rowStart, rowEnd, prefixRowsToEstimate }: { rowStart: number, rowEnd: number, prefixRowsToEstimate?: number }): { firstByteToFetch: number, firstByteToStore: number, firstRow: number } | undefined {
     checkNonNegativeInteger(rowStart)
     checkNonNegativeInteger(rowEnd)
+    prefixRowsToEstimate ??= 3
+    checkNonNegativeInteger(prefixRowsToEstimate)
 
     // try every empty range between cached rows
-    let first = this.#serial.next
+    let cursor = this.#serial.next
 
-    if (first.firstByte >= this.#byteLength) {
+    if (cursor.firstByte >= this.#byteLength) {
       // No missing row if all rows are cached
       return undefined
     }
 
-    for (const { firstRow, next } of [...this.#random, { firstRow: Infinity, next: { row: Infinity, firstByte: this.#byteLength } }]) {
-      if (rowStart < first.row) {
+    for (const nextRange of [...this.#random, { firstRow: Infinity, next: { row: Infinity, firstByte: this.#byteLength } }]) {
+      if (rowStart < cursor.row) {
         // ignore cached rows
-        rowStart = first.row
+        rowStart = cursor.row
       }
       if (rowEnd <= rowStart) {
         // no missing row (rowEnd is exclusive)
         return
       }
-      if (rowStart < firstRow) {
-        // the first row is in this missing range
-        if (rowStart === first.row || this.averageRowByteCount === undefined) {
-          // if the start row is the same as the first row, we can use the first byte directly
+      if (rowStart < nextRange.firstRow) {
+        // the next row to fetch is between the cursor and the next range
+        if (rowStart === cursor.row || this.averageRowByteCount === undefined) {
+          // if the requested row is the cursor, we can use its firstByte property directly
           // Same if we cannot estimate positions
-          return { firstByte: first.firstByte, isEstimate: false }
+          return { firstByteToFetch: cursor.firstByte, firstByteToStore: cursor.firstByte, firstRow: cursor.row }
         }
-        // estimate the byte position based on the average row byte count, trying to get the middle of the previous row
-        const delta = Math.floor((rowStart - first.row - 0.5) * this.averageRowByteCount)
-        const firstByte = first.firstByte + Math.max(0, delta)
 
+        // estimate the byte position based on the average row byte count.
+        const gapRows = rowStart - cursor.row
+        const gapBytes = Math.round(gapRows * this.averageRowByteCount)
+        // Start storing here:
+        const firstByteToStore = Math.max(cursor.firstByte + gapBytes, 0)
         // avoid going beyond the end of the file
-        if (firstByte >= this.#byteLength) {
+        if (firstByteToStore >= this.#byteLength) {
           return undefined
         }
 
+        // Start fetching some rows before:
+        const prefixBytes = Math.round(prefixRowsToEstimate * this.averageRowByteCount) // number of bytes to ignore at the start when estimating
+        const firstByteToFetch = Math.max(firstByteToStore - prefixBytes, 0)
+
         return {
-          firstByte,
-          isEstimate: true,
+          firstByteToFetch,
+          firstByteToStore,
+          firstRow: rowStart,
         }
       }
       // try the next missing range
-      first = next
+      cursor = nextRange.next
     }
   }
 
