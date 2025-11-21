@@ -38,7 +38,7 @@ export default function Welcome({ setUrl }: Props): ReactNode {
           <li>
             <a
               className="source"
-              href="?url=https://data.source.coop/severo/csv-papaparse-test-files/verylongsample.csv"
+              href="?url=https://data.source.coop/severo/csv-papaparse-test-files/verylong-sample.csv"
             >
               <h2>PapaParse test files</h2>
               <p>Five CSV files used to test the PapaParse library.</p>
