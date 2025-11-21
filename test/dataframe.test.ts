@@ -50,9 +50,24 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 2,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 1, column: 'b' })).toStrictEqual({ value: '5' })
       expect(df.getCell({ row: 2, column: 'b' })).toBeUndefined()
+      revoke()
+    })
+
+    it('should fetch more than initial rows when specified if the chunk size is bigger', async () => {
+      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
+      const { url, revoke, fileSize } = toURL(text, { withNodeWorkaround: true })
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 2,
+        chunkSize: 500,
+      })
+      expect(df.getCell({ row: 1, column: 'b' })).toStrictEqual({ value: '5' })
+      expect(df.getCell({ row: 2, column: 'b' })).not.toBeUndefined()
       revoke()
     })
 
@@ -66,6 +81,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 1,
+        chunkSize: 5,
       })
       // with only one row loaded, the average row size is not accurate enough to estimate the number of rows
       expect(df.numRows).toBe(expectedRows) // the estimate is not perfect
@@ -80,6 +96,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 0,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 1, column: 'b' })).toBeUndefined()
       revoke()
@@ -170,6 +187,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 2,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
       revoke()
@@ -182,6 +200,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 2,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 5, column: 'a' })).toBeUndefined()
       revoke()
@@ -242,6 +261,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 2,
+        chunkSize: 5,
       })
       expect(df.getRowNumber({ row: 2 })).toBeUndefined()
       revoke()
@@ -254,6 +274,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 2,
+        chunkSize: 5,
       })
       expect(df.getRowNumber({ row: 5 })).toBeUndefined()
       revoke()
@@ -290,6 +311,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 2,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 2, rowEnd: 5 })
@@ -306,6 +328,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 1,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 1, rowEnd: 10 })
@@ -366,6 +389,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 2,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 2, rowEnd: 10 })
@@ -380,6 +404,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 2,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 3, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 3, rowEnd: 4 })
@@ -396,6 +421,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 1,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 2, rowEnd: 5 })
@@ -412,6 +438,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 1,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 3, rowEnd: 5 })
@@ -455,6 +482,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 1,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '111111' })
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
@@ -484,6 +512,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 1,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '111111' })
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
@@ -514,6 +543,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 2,
+        chunkSize: 5,
       })
 
       let resolveEventCount = 0
@@ -541,6 +571,7 @@ describe('csvDataFrame', () => {
         url,
         byteLength: fileSize,
         initialRowCount: 1,
+        chunkSize: 5,
       })
       expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '1' })
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()

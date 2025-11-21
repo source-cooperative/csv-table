@@ -17,7 +17,7 @@ import { CSVCache } from './cache'
 import { checkNonNegativeInteger } from './helpers.js'
 
 const defaultChunkSize = 100 * 1024 // 100 KB
-const defaultInitialRowCount = 500
+const defaultInitialRowCount = 50
 // const paddingRowCount = 20 // fetch a bit before and after the requested range, to avoid cutting rows
 
 interface Params {
@@ -215,6 +215,7 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
 
         // Store the new row in the cache
         const isEmpty = isEmptyLine(result.row)
+        // v8 ignore else -- @preserve
         if (!cache.isStored({ byteOffset: result.meta.byteOffset })) {
           cache.store({
             cells: isEmpty ? undefined : result.row,
@@ -226,6 +227,10 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
             // emit event for newly fetched row within the requested range
             eventTarget.dispatchEvent(new CustomEvent('resolve'))
           }
+        }
+        else {
+          // the row should not be already stored, but double check
+          console.debug('Row already stored, should not happen, skipping', { byteOffset: result.meta.byteOffset, row })
         }
         if (!isEmpty) {
           row++
@@ -295,7 +300,7 @@ async function initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRo
       cache = CSVCache.fromHeader({ header: result, byteLength })
       continue
     }
-    else if (cache.rowCount >= initialRowCount) {
+    else if (cache.rowCount >= initialRowCount && result.meta.byteOffset > 0.9 * chunkSize) {
       // enough rows for now
       break
     }
