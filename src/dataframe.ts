@@ -186,6 +186,7 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
       const initialState = firstByteToFetch !== firstByteToStore ? 'detect' : 'default'
 
       let k = 0
+      let row = firstRow
       for await (const result of parseURL(url, {
         delimiter: cache.delimiter,
         newline: cache.newline,
@@ -213,18 +214,21 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
         }
 
         // Store the new row in the cache
+        const isEmpty = isEmptyLine(result.row)
         if (!cache.isStored({ byteOffset: result.meta.byteOffset })) {
-          const isEmpty = isEmptyLine(result.row)
           cache.store({
             cells: isEmpty ? undefined : result.row,
             byteOffset: result.meta.byteOffset,
             byteCount: result.meta.byteCount,
-            firstRow,
+            firstRow: row,
           })
-          if (!isEmpty && firstRow >= rowStart && firstRow < rowEnd) {
+          if (!isEmpty && row >= rowStart && row < rowEnd) {
             // emit event for newly fetched row within the requested range
             eventTarget.dispatchEvent(new CustomEvent('resolve'))
           }
+        }
+        if (!isEmpty) {
+          row++
         }
 
         // next row
