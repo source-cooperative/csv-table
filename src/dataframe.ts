@@ -27,6 +27,7 @@ interface Params {
   initialRowCount?: number // number of rows to fetch at dataframe creation
 }
 
+// Note that when sending a 'numrowsupdate' event, the isNumRowsEstimated flag is also updated if needed
 export type CSVDataFrame = DataFrame<{ isNumRowsEstimated: boolean }>
 
 /**
@@ -45,10 +46,12 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
 
   const eventTarget = createEventTarget<DataFrameEvents>()
   const cache = await initializeCSVCachefromURL({ url, byteLength, chunkSize, initialRowCount })
-  const { numRows, isEstimate } = cache.numRowsEstimate
-  const metadata = {
-    isNumRowsEstimated: isEstimate,
-  }
+  cache.eventTarget.addEventListener('num-rows-estimate-updated', () => {
+    // propagate event
+    eventTarget.dispatchEvent(new CustomEvent('numrowschange'))
+  })
+  // no need to remove the listener, as the cache has the same lifetime as the dataframe
+
   const columnDescriptors: DataFrame['columnDescriptors'] = cache.columnNames.map(name => ({ name }))
 
   /**
@@ -141,13 +144,15 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
   }): Promise<void> {
     checkSignal(signal)
 
+    // until the CSV is fully loaded, we don't know the exact number of rows
+    const numRows = cache.allRowsCached ? cache.rowCount : Infinity
     validateFetchParams({
       rowStart,
       rowEnd,
       columns,
       orderBy,
       data: {
-        numRows: Infinity, // we don't (always) know the exact number of rows yet
+        numRows,
         columnDescriptors,
       },
     })
@@ -262,8 +267,14 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
   }
 
   return {
-    metadata,
-    numRows,
+    metadata: {
+      get isNumRowsEstimated() {
+        return cache.numRowsEstimate.isEstimate
+      },
+    },
+    get numRows() {
+      return cache.numRowsEstimate.numRows
+    },
     columnDescriptors,
     getCell,
     getRowNumber,
