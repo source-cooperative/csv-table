@@ -159,11 +159,6 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
 
     if (cache.allRowsCached) {
       // all rows are already cached
-      if (rowEnd > cache.rowCount) {
-        // requested rows are beyond the end of the file
-        throw new Error(`Requested rows are beyond the end of the file: ${rowEnd} > ${cache.rowCount}`)
-      }
-      // else nothing to do
       return
     }
 
