@@ -1,4 +1,4 @@
-import type { Newline, ParseResult } from 'csv-range'
+import type { Newline, ParseResult } from 'cosovo'
 
 import { checkNonNegativeInteger } from './helpers.js'
 

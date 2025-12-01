@@ -1,4 +1,4 @@
-import { isEmptyLine, parseURL } from 'csv-range'
+import { isEmptyLine, parseURL } from 'cosovo'
 import type {
   DataFrame,
   DataFrameEvents,

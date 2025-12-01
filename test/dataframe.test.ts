@@ -1,4 +1,4 @@
-import { toURL } from 'csv-range'
+import { toURL } from 'cosovo'
 import { describe, expect, it } from 'vitest'
 
 import { csvDataFrame } from '../src/dataframe'
