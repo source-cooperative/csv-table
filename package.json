@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "cosovo": "0.2.0",
-    "hightable": "0.22.2",
+    "hightable": "0.24.1",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },

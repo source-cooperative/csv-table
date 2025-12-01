@@ -1,6 +1,14 @@
 import type { Newline, ParseResult } from 'cosovo'
+import { createEventTarget } from 'hightable'
 
 import { checkNonNegativeInteger } from './helpers.js'
+
+export interface CSVCacheEvents {
+  'num-rows-estimate-updated': {
+    numRows: number
+    isEstimate: boolean
+  }
+}
 
 /**
  * A byte range in a CSV file, with the parsed rows
@@ -192,6 +200,14 @@ export class CSVCache {
    * The average number of bytes per row, used for estimating row positions
    */
   #averageRowByteCount: number | undefined = undefined
+  /**
+   * The estimated number of rows in the CSV file
+   */
+  #numRowsEstimate: { numRows: number, isEstimate: boolean } = { numRows: 0, isEstimate: true }
+  /**
+   * An event target to emit events
+   */
+  #eventTarget = createEventTarget<CSVCacheEvents>()
 
   constructor({ columnNames, headerByteCount, byteLength, delimiter, newline }: { columnNames: string[], headerByteCount?: number, byteLength: number, delimiter: string, newline: Newline }) {
     headerByteCount ??= 0
@@ -268,6 +284,22 @@ export class CSVCache {
   }
 
   /**
+   * Get an estimate of the total number of rows in the CSV file
+   * @returns The estimated number of rows and if it's an estimate
+   */
+  get numRowsEstimate(): { numRows: number, isEstimate: boolean } {
+    return this.#numRowsEstimate
+  }
+
+  /**
+   * Get the event target to listen to cache events
+   * @returns The event target
+   */
+  get eventTarget(): ReturnType<typeof createEventTarget<CSVCacheEvents>> {
+    return this.#eventTarget
+  }
+
+  /**
    * Update the average row byte count based on the cached rows
    */
   #updateAverageRowByteCount(): void {
@@ -275,10 +307,11 @@ export class CSVCache {
     const rowCount = this.#serial.rowCount + this.#random.reduce((sum, range) => sum + range.rowCount, 0)
     if (rowCount === 0) {
       this.#averageRowByteCount = undefined
-      return
     }
-    const averageRowByteCount = rowByteCount / rowCount
-    this.#averageRowByteCount = averageRowByteCount
+    else {
+      this.#averageRowByteCount = rowByteCount / rowCount
+    }
+    this.#updateNumRowsEstimate()
   }
 
   /**
@@ -322,19 +355,19 @@ export class CSVCache {
   }
 
   /**
-   * Get an estimate of the total number of rows in the CSV file
-   * @returns The estimated number of rows and if it's an estimate
+   * Update the estimated number of rows in the CSV file
    */
-  get numRowsEstimate(): { numRows: number, isEstimate: boolean } {
+  #updateNumRowsEstimate(): void {
     const averageRowByteCount = this.averageRowByteCount
     const numRows = this.allRowsCached
       ? this.rowCount
       : averageRowByteCount === 0 || averageRowByteCount === undefined
         ? 0
         : Math.round((this.#byteLength - this.headerByteCount) / averageRowByteCount)
-    return {
-      numRows,
-      isEstimate: !this.allRowsCached,
+    const isEstimate = !this.allRowsCached
+    if (this.#numRowsEstimate.numRows !== numRows || this.#numRowsEstimate.isEstimate !== isEstimate) {
+      this.#numRowsEstimate = { numRows, isEstimate }
+      this.#eventTarget.dispatchEvent(new CustomEvent('num-rows-estimate-updated'))
     }
   }
 

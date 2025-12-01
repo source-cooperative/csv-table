@@ -1,5 +1,5 @@
 import { type DataFrame, HighTable } from 'hightable'
-import { type ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import Loading from './Loading.js'
 
@@ -28,6 +28,23 @@ export default function Page({
   setError,
   iframe = false,
 }: PageProps): ReactNode {
+  const [numRowsEstimate, setNumRowsEstimate] = useState<{ numRows: number, isEstimate: boolean } | undefined>(undefined)
+  useEffect(() => {
+    if (!df) return
+    /**
+     * Handle num rows update event
+     */
+    function onNumRowsUpdate() {
+      if (!df) return
+      setNumRowsEstimate({ numRows: df.numRows, isEstimate: df.metadata?.isNumRowsEstimated ?? false })
+    }
+    onNumRowsUpdate()
+    df.eventTarget?.addEventListener('numrowschange', onNumRowsUpdate)
+    return () => {
+      df.eventTarget?.removeEventListener('numrowschange', onNumRowsUpdate)
+    }
+  }, [df])
+
   return (
     <>
       {iframe ? '' : <div className="top-header">{name}</div>}
@@ -37,14 +54,14 @@ export default function Page({
             {formatFileSize(byteLength)}
           </span>
         )}
-        {df
+        {numRowsEstimate
           ? (
               <span>
-                {df.numRows.toLocaleString()}
+                {numRowsEstimate.numRows.toLocaleString()}
                 {' '}
                 row
-                {df.numRows > 1 ? 's' : ''}
-                {df.metadata?.isNumRowsEstimated ? ' (estimated)' : ''}
+                {numRowsEstimate.numRows > 1 ? 's' : ''}
+                {numRowsEstimate.isEstimate ? ' (estimated)' : ''}
               </span>
             )
           : null}
