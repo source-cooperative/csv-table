@@ -315,6 +315,38 @@ export class CSVCache {
     this.#updateNumRowsEstimate()
   }
 
+  /**
+   * Re-assign row numbers in random ranges to reduce overlaps
+   */
+  updateRowEstimates(): void {
+    const averageRowByteCount = this.averageRowByteCount
+    if (averageRowByteCount === undefined || averageRowByteCount === 0) {
+      return
+    }
+
+    let previousRange = this.#serial
+
+    // loop on the random ranges
+    for (const range of this.#random) {
+      // v8 ignore if -- @preserve
+      if (range.firstByte <= previousRange.next.firstByte) {
+        // should not happen
+        throw new Error('Cannot update row estimates: overlap with previous range')
+      }
+
+      const firstRow = Math.max(
+        // ensure at least one row gap
+        previousRange.next.row + 1,
+        // estimate based on byte position
+        Math.round(previousRange.next.row + (range.firstByte - previousRange.next.firstByte) / averageRowByteCount),
+      )
+
+      range.firstRow = firstRow
+
+      previousRange = range
+    }
+  }
+
   get averageRowByteCount(): number | undefined {
     return this.#averageRowByteCount
   }
