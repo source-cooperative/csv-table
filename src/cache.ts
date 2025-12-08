@@ -233,7 +233,7 @@ export class CSVCache {
     })
     this.#random = []
 
-    this.#updateAverageRowByteCount()
+    this.updateCacheEstimates()
   }
 
   /**
@@ -301,30 +301,62 @@ export class CSVCache {
   }
 
   /**
-   * Update the average row byte count based on the cached rows
+   * Compute the average row byte count based on the cached rows
+   * @returns The average row byte count, or undefined if no rows are cached
    */
-  #updateAverageRowByteCount(): void {
+  #computeAverageRowByteCount(): number | undefined {
     const rowByteCount = this.#serial.rowByteCount + this.#random.reduce((sum, range) => sum + range.rowByteCount, 0)
     const rowCount = this.#serial.rowCount + this.#random.reduce((sum, range) => sum + range.rowCount, 0)
     if (rowCount === 0) {
-      this.#averageRowByteCount = undefined
+      return undefined
     }
     else {
-      this.#averageRowByteCount = rowByteCount / rowCount
+      return rowByteCount / rowCount
     }
-    this.#updateNumRowsEstimate()
   }
 
   /**
    * Re-assign row numbers in random ranges to reduce overlaps
+   * @returns An object indicating which estimates were updated
    */
-  updateRowEstimates(): void {
-    const averageRowByteCount = this.averageRowByteCount
+  updateCacheEstimates(): {
+    averageRowByteCount: boolean
+    numRowsEstimate: boolean
+    firstRows: boolean
+  } {
+    const updated = {
+      averageRowByteCount: false,
+      numRowsEstimate: false,
+      firstRows: false,
+    }
+
+    // Update the average row byte count
+    const averageRowByteCount = this.#computeAverageRowByteCount()
+    if (this.#averageRowByteCount !== averageRowByteCount) {
+      this.#averageRowByteCount = averageRowByteCount
+      updated.averageRowByteCount = true
+    }
+
+    const { numRows, isEstimate } = this.#computeNumRowsEstimate()
+    if (this.#numRowsEstimate.numRows !== numRows || this.#numRowsEstimate.isEstimate !== isEstimate) {
+      this.#numRowsEstimate = { numRows, isEstimate }
+      updated.numRowsEstimate = true
+    }
+
     if (averageRowByteCount === undefined || averageRowByteCount === 0) {
-      return
+      return updated
+    }
+
+    if (!isEstimate) {
+      if (this.#random.length > 0) {
+        throw new Error('Inconsistent row estimates: random ranges exist but number of rows is exact')
+      }
+      // no need to update row estimates if we know the exact number of rows
+      return updated
     }
 
     let previousRange = this.#serial
+    let maxNumRows = previousRange.next.row
 
     // loop on the random ranges
     for (const range of this.#random) {
@@ -334,17 +366,29 @@ export class CSVCache {
         throw new Error('Cannot update row estimates: overlap with previous range')
       }
 
-      const firstRow = Math.max(
-        // ensure at least one row gap
-        previousRange.next.row + 1,
-        // estimate based on byte position
-        Math.round(previousRange.next.row + (range.firstByte - previousRange.next.firstByte) / averageRowByteCount),
-      )
+      const hasReachedEOF = range.firstByte + range.byteCount === this.#byteLength
+      const firstRow = hasReachedEOF
+        ? this.numRowsEstimate.numRows - range.rowCount
+        : Math.max(
+            // ensure at least one row gap
+            previousRange.next.row + 1,
+            // estimate based on byte position
+            Math.round(previousRange.next.row + (range.firstByte - previousRange.next.firstByte) / averageRowByteCount),
+          )
 
+      updated.firstRows ||= range.firstRow !== firstRow
       range.firstRow = firstRow
+      maxNumRows = Math.max(maxNumRows, range.next.row)
 
       previousRange = range
     }
+
+    if (maxNumRows >= numRows) {
+      this.#numRowsEstimate = { numRows: maxNumRows, isEstimate: true }
+      updated.numRowsEstimate = true
+    }
+
+    return updated
   }
 
   get averageRowByteCount(): number | undefined {
@@ -356,25 +400,10 @@ export class CSVCache {
   }
 
   /**
-   * Update the last range row number, if it ends at the end of the file.
+   * Compute the estimated number of rows in the CSV file
+   * @returns The new estimated number of rows and if it's an estimate
    */
-  #updateLastRangeRowNumber(): void {
-    const last = this.#random[this.#random.length - 1]
-    if (last === undefined || last.next.firstByte < this.#byteLength) {
-      return
-    }
-    // update the last range first row number
-    const totalRows = this.#numRowsEstimate.numRows
-    const lastRangeRowCount = last.rowCount
-    last.firstRow = totalRows - lastRangeRowCount
-    // dispatch an event to let the listeners know that the row numbers have changed
-    this.#eventTarget.dispatchEvent(new CustomEvent('resolve'))
-  }
-
-  /**
-   * Update the estimated number of rows in the CSV file
-   */
-  #updateNumRowsEstimate(): void {
+  #computeNumRowsEstimate(): { numRows: number, isEstimate: boolean } {
     const averageRowByteCount = this.averageRowByteCount
     const numRows = this.allRowsCached
       ? this.rowCount
@@ -382,11 +411,7 @@ export class CSVCache {
         ? 0
         : Math.round((this.#byteLength - this.headerByteCount) / averageRowByteCount)
     const isEstimate = !this.allRowsCached
-    if (this.#numRowsEstimate.numRows !== numRows || this.#numRowsEstimate.isEstimate !== isEstimate) {
-      this.#numRowsEstimate = { numRows, isEstimate }
-      this.#eventTarget.dispatchEvent(new CustomEvent('num-rows-estimate-updated'))
-    }
-    this.#updateLastRangeRowNumber()
+    return { numRows, isEstimate }
   }
 
   /**
@@ -453,7 +478,11 @@ export class CSVCache {
    * @param row.firstRow The first row index (0-based) used if a new range is created.
    * @param row.cells The cells of the row. If not provided, the row is considered ignored and not cached (i.e., empty or header).
    */
-  store(row: { byteOffset: number, byteCount: number, firstRow: number, cells?: string[] }): void {
+  store(row: { byteOffset: number, byteCount: number, firstRow: number, cells?: string[] }): {
+    averageRowByteCount: boolean
+    numRowsEstimate: boolean
+    firstRows: boolean
+  } {
     checkNonNegativeInteger(row.byteOffset)
     checkNonNegativeInteger(row.byteCount)
     if (row.byteOffset + row.byteCount > this.#byteLength) {
@@ -502,9 +531,7 @@ export class CSVCache {
       this.#random.splice(i, 0, newRange)
       break
     }
-
-    // Update the average row byte count
-    this.#updateAverageRowByteCount()
+    return this.updateCacheEstimates()
   }
 
   /**

@@ -219,7 +219,7 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
         // v8 ignore else -- @preserve
         if (!cache.isStored({ byteOffset: result.meta.byteOffset })) {
           // store if not in the cache yet
-          cache.store({
+          const updates = cache.store({
             cells: isEmpty ? undefined : result.row,
             byteOffset: result.meta.byteOffset,
             byteCount: result.meta.byteCount,
@@ -228,6 +228,10 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
           if (!isEmpty) {
             // emit event for newly fetched row (even if it's not in the requested range)
             eventTarget.dispatchEvent(new CustomEvent('resolve'))
+          }
+          if (updates.numRowsEstimate) {
+            // propagate event
+            eventTarget.dispatchEvent(new CustomEvent('numrowschange'))
           }
         }
         if (!isEmpty) {
