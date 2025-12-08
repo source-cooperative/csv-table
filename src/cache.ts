@@ -446,7 +446,7 @@ export class CSVCache {
         break
       }
 
-      // create a new random range between previousRange and nextRange
+      // create a new random range between previousRange and nextRange (if any)
       // Note that we might have a situation where firstRow overlaps with other ranges.
       const newRange = new CSVRange({ firstByte: row.byteOffset, firstRow: row.firstRow })
       newRange.append(row)
