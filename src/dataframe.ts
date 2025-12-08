@@ -215,22 +215,20 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
 
         // Store the new row in the cache
         const isEmpty = isEmptyLine(result.row)
+        // TODO(SL): we could test it, since it can occur. We could check that the event is not dispatched if already in the cache.
         // v8 ignore else -- @preserve
         if (!cache.isStored({ byteOffset: result.meta.byteOffset })) {
+          // store if not in the cache yet
           cache.store({
             cells: isEmpty ? undefined : result.row,
             byteOffset: result.meta.byteOffset,
             byteCount: result.meta.byteCount,
             firstRow: row,
           })
-          if (!isEmpty && row >= rowStart && row < rowEnd) {
-            // emit event for newly fetched row within the requested range
+          if (!isEmpty) {
+            // emit event for newly fetched row (even if it's not in the requested range)
             eventTarget.dispatchEvent(new CustomEvent('resolve'))
           }
-        }
-        else {
-          // the row should not be already stored, but double check
-          console.debug('Row already stored, should not happen, skipping', { byteOffset: result.meta.byteOffset, row })
         }
         if (!isEmpty) {
           row++
