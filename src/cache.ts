@@ -158,6 +158,7 @@ export class CSVRange {
       throw new Error('Cannot merge ranges: not contiguous')
     }
     this.#byteCount += followingRange.byteCount
+    this.#rowByteCount += followingRange.rowByteCount
     for (const row of followingRange.rows) {
       this.#rows.push(row)
     }

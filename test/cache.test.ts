@@ -99,6 +99,7 @@ describe('CSVRange', () => {
       byteOffset: 10,
       byteCount: 10,
     })
+    expect(range1.rowByteCount).toBe(10)
 
     const range2 = new CSVRange({ firstByte: 20, firstRow: 2 })
     range2.append({
@@ -110,12 +111,14 @@ describe('CSVRange', () => {
       byteOffset: 30,
       byteCount: 10,
     })
+    expect(range2.rowByteCount).toBe(10)
 
     range1.merge(range2)
 
     expect(range1.rowCount).toBe(2)
     expect(range1.byteCount).toBe(40)
     expect(range1.firstRow).toBe(0)
+    expect(range1.rowByteCount).toBe(20)
     expect(range1.next).toStrictEqual({ firstByte: 40, row: 2 })
     expect(range1.rows).toEqual([['b', 'c', 'd'], ['e', 'f', 'g']])
     expect(range1.getCells({ row: 0 })).toEqual(['b', 'c', 'd'])
