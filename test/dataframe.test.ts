@@ -495,13 +495,19 @@ describe('csvDataFrame', () => {
 
       await df.fetch?.({ rowStart: 2, rowEnd: 6 })
 
+      // erroneously thinks there are 7 rows due to the overestimation of the average row size
+      expect(df.numRows).toBe(7)
+
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      // erroneously got row 4 instead of row 2, due to the overestimation of the average row size
-      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '13' })
-      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '16' })
-      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '19' })
-      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '22' })
-      expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
+      // the row estimation is incorrect, so the row numbers are incorrect.
+      // But as the file end is reached, the row numbers have been adjusted and row 2 is now undefined
+      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
+      // erroneously got row 4 instead of row 3, due to the overestimation of the average row size
+      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '13' })
+      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '16' })
+      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '19' })
+      expect(df.getCell({ row: 6, column: 'a' })).toStrictEqual({ value: '22' })
+      expect(df.getCell({ row: 7, column: 'a' })).toBeUndefined()
       revoke()
     })
 
@@ -526,13 +532,15 @@ describe('csvDataFrame', () => {
       await df.fetch?.({ rowStart: 2, rowEnd: 7 })
 
       expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      // erroneously got row 4 instead of row 2, due to the overestimation of the average row size
-      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '13' })
-      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '16' })
-      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '19' })
-      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '22' })
-      // the last row, row 6, was not fetched, even if it was requested
-      expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
+      // the row estimation is incorrect, so the row numbers are incorrect.
+      // But as the file end is reached, the row numbers have been adjusted and row 2 is now undefined
+      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
+      // erroneously got row 4 instead of row 3, due to the overestimation of the average row size
+      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '13' })
+      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '16' })
+      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '19' })
+      expect(df.getCell({ row: 6, column: 'a' })).toStrictEqual({ value: '22' })
+      expect(df.getCell({ row: 7, column: 'a' })).toBeUndefined()
       revoke()
     })
 

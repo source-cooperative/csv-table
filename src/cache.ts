@@ -324,6 +324,22 @@ export class CSVCache {
   }
 
   /**
+   * Update the last range row number, if it ends at the end of the file.
+   */
+  #updateLastRangeRowNumber(): void {
+    const last = this.#random[this.#random.length - 1]
+    if (last === undefined || last.next.firstByte < this.#byteLength) {
+      return
+    }
+    // update the last range first row number
+    const totalRows = this.#numRowsEstimate.numRows
+    const lastRangeRowCount = last.rowCount
+    last.firstRow = totalRows - lastRangeRowCount
+    // dispatch an event to let the listeners know that the row numbers have changed
+    this.#eventTarget.dispatchEvent(new CustomEvent('resolve'))
+  }
+
+  /**
    * Update the estimated number of rows in the CSV file
    */
   #updateNumRowsEstimate(): void {
@@ -338,6 +354,7 @@ export class CSVCache {
       this.#numRowsEstimate = { numRows, isEstimate }
       this.#eventTarget.dispatchEvent(new CustomEvent('num-rows-estimate-updated'))
     }
+    this.#updateLastRangeRowNumber()
   }
 
   /**
