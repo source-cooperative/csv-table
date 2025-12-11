@@ -301,7 +301,7 @@ export class CSVCache {
   /**
    * Store a new row
    * If the byte range is already cached, false is immediately returned.
-   * It only part of the the byte range is cached, an error is thrown.
+   * If only part of the byte range is cached, an error is thrown.
    * @param row The row to store.
    * @param row.byteOffset The byte offset of the row in the file.
    * @param row.byteCount The number of bytes of the row.
