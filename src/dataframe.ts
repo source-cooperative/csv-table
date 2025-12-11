@@ -181,7 +181,7 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
     // if lastMissingRowNumber is undefined, we use fetchRowEnd as the fallback (see line 173)
     const numRowsToFetch = lastMissingRow - firstMissingRow.row
     const initialState = firstMissingRow.byteOffset.isEstimate ? 'detect' : 'default'
-    const ignoreFirstRow = firstMissingRow.byteOffset.isEstimate ? true : false
+    const ignoreFirstRow = firstMissingRow.byteOffset.isEstimate
 
     if (numRowsToFetch <= 0) {
       // nothing to fetch
