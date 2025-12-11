@@ -513,7 +513,11 @@ export class Estimator {
     if (this.#averageRowByteCount === 0 || this.#averageRowByteCount === undefined) {
       return undefined
     }
-    return Math.min(Math.max(this.#cache.headerByteCount + Math.round(row * this.#averageRowByteCount), 0), this.#cache.byteLength - 1)
+    return Math.max(0,
+      Math.min(this.#cache.byteLength - 1,
+        this.#cache.headerByteCount + Math.round(row * this.#averageRowByteCount),
+      ),
+    )
   }
 
   /**

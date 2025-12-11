@@ -691,7 +691,7 @@ describe('Estimator', () => {
       const updated = estimator.refresh()
       expect(updated).toBe(true)
     })
-    it('updates the internal state if the difference with the previous average row byte count is significant (more than 5%)', () => {
+    it('updates the internal state if the difference with the previous average row byte count is significant (more than 1%)', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
         byteLength: 100,
@@ -714,24 +714,24 @@ describe('Estimator', () => {
       const updated = estimator.refresh()
       expect(updated).toBe(true)
     })
-    it('does not update the internal state if the difference with the previous average row byte count is not significant (less than 5%)', () => {
+    it('does not update the internal state if the difference with the previous average row byte count is not significant (less than 1%)', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
-        byteLength: 100,
-        headerByteCount: 10,
+        byteLength: 1000,
+        headerByteCount: 0,
         delimiter: ',',
         newline: '\n' as const,
       })
       cache.store({
-        byteOffset: 10,
-        byteCount: 10,
+        byteOffset: 0,
+        byteCount: 400,
         cells: ['a', 'b', 'c'],
       })
       const estimator = new Estimator({ cache })
       estimator.refresh()
       cache.store({
-        byteOffset: 20,
-        byteCount: 11,
+        byteOffset: 400,
+        byteCount: 401,
         cells: ['a', 'b', 'c'],
       })
       const updated = estimator.refresh()

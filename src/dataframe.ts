@@ -206,9 +206,6 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
     }
 
     try {
-      // const initialState = firstByteToFetch !== firstByteToStore ? 'detect' : 'default'
-
-      let isFirstRow = true
       for await (const result of parseURL(url, {
         delimiter: cache.delimiter,
         newline: cache.newline,
@@ -221,8 +218,8 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
         // Check if the signal has been aborted
         checkSignal(signal)
 
-        if (isFirstRow) {
-          isFirstRow = false
+        if (stats.parsedRows <= 1) {
+          // we might have started parsing in the middle of a row, ignore this first row
           stats.ignored += 1
           continue
         }
