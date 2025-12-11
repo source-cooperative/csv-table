@@ -492,7 +492,6 @@ describe('csvDataFrame', () => {
       // the first row can always be fetched
       await df.fetch?.({ rowStart: 0, rowEnd: 5 })
       // note that only one row has actually been fetched
-      // TODO(SL): be smarter when we fetch from the start
       expect(resolveEventCount).toBe(1)
 
       // now, the offset for row 30 can be estimated, and rows can be fetched

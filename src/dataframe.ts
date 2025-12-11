@@ -186,8 +186,6 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
     const fetchRowStart = Math.max(0, rowStart - extraRows)
     const fetchRowEnd = Math.min(rowEnd + extraRows)
 
-    // we could set initialState to 'default' if firstByte is exactly at the start of a row
-    // TODO(SL): implement it, by inspecting all the cache ranges, instead of doing a global average
     const firstByte = estimator.guessByteOffset({ row: fetchRowStart })
     const lastBytePlusOne = estimator.guessByteOffset({ row: fetchRowEnd })
     if (firstByte === undefined) {

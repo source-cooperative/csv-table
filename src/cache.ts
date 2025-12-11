@@ -309,7 +309,6 @@ export class CSVCache {
    * @returns True if the row was stored successfully.
    */
   store(row: { byteOffset: number, byteCount: number, cells?: string[] }): boolean {
-    // TODO(SL): forbid storing rows before the headerByteCount?
     checkNonNegativeInteger(row.byteOffset)
     checkNonNegativeInteger(row.byteCount)
 
@@ -503,8 +502,6 @@ export class Estimator {
     }
   }
 
-  // TODO(SL): look at the ranges to improve the estimation, in particular to avoid gaps between successive rows
-  // TODO(SL): also tell if it's a guess or exact
   guessByteOffset({ row }: { row: number }): number | undefined {
     // special case: even if averageRowByteCount is undefined or 0, we know the byte offset of row 0
     if (row === 0) {
@@ -554,8 +551,6 @@ export class Estimator {
 
     if (
       this.#averageRowByteCount === 0
-      // TODO(SL): instead of a fixed threshold, use a dynamic one based on the number of cached rows?
-      // or on the variance of the row byte counts?
       || Math.abs(averageRowByteCount - this.#averageRowByteCount) / this.#averageRowByteCount > 0.01
     ) {
       this.#averageRowByteCount = averageRowByteCount
@@ -599,7 +594,6 @@ export class Estimator {
     return undefined
   }
 
-  // TODO(SL): look at the ranges to improve the estimation, in particular to avoid gaps between successive rows
   #guessRowNumberInRandomRange({ byteOffset }: { byteOffset: number }): number | undefined {
     // v8 ignore if -- @preserve
     if (this.#averageRowByteCount === undefined) {
