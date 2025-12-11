@@ -522,7 +522,7 @@ export class Estimator {
 
   /**
    * Refresh the internal state (average row byte count)
-   * Don't update the internal state if the change is not significant (<5%)
+   * Don't update the internal state if the change is not significant (<1%)
    * @returns True if the internal state has been updated
    */
   refresh(): boolean {
