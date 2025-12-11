@@ -117,7 +117,7 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
   /**
    * Fetch the given range of rows, filling the cache as needed.
    * The row numbers are only known exactly for the first range of rows, the rest are estimated. To avoid
-   * unstability, the estimation is updated only at the end of the fetch.
+   * instability, the estimation is updated only at the end of the fetch.
    * @param options - options
    * @param options.rowStart - starting row index
    * @param options.rowEnd - ending row index (exclusive)
