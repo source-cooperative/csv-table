@@ -599,7 +599,7 @@ export class Estimator {
     return undefined
   }
 
-  // TODO(SL): look at the ranges to improve the estimation, in particular to avoid gaps between sucessive rows
+  // TODO(SL): look at the ranges to improve the estimation, in particular to avoid gaps between successive rows
   #guessRowNumberInRandomRange({ byteOffset }: { byteOffset: number }): number | undefined {
     // v8 ignore if -- @preserve
     if (this.#averageRowByteCount === undefined) {
