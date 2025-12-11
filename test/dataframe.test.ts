@@ -469,7 +469,7 @@ describe('csvDataFrame', () => {
       revoke()
     })
 
-    it('does nothing it trying to fetch random rows, and no initial rows are cached', async () => {
+    it('does nothing if trying to fetch random rows, and no initial rows are cached', async () => {
       const text = 'aaaaaaaaaa\n' + Array(100).fill(0).map((_, i) => i.toString().padStart(2, '0')).join('\n')
       const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
