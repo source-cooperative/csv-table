@@ -657,7 +657,7 @@ export class Estimator {
       isEstimate: false,
     }
 
-    // 3 cases to consider:
+    // 4 cases to consider:
     // - inside the left range
     // - just after the left range
     // - after the left range and before the right range (the right range can be undefined, meaning the end of the file)
