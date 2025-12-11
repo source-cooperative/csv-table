@@ -185,20 +185,20 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
     const extraRows = 3
     const fetchRowStart = Math.max(0, rowStart - extraRows)
     const fetchRowEnd = Math.min(rowEnd + extraRows)
+    const numRowsToFetch = fetchRowEnd - fetchRowStart
 
     const firstByte = estimator.guessByteOffset({ row: fetchRowStart })
-    const lastBytePlusOne = estimator.guessByteOffset({ row: fetchRowEnd })
     if (firstByte === undefined) {
       // cannot estimate
       return
     }
-    const lastByte = lastBytePlusOne ? lastBytePlusOne - 1 : firstByte - 1 // fetch at least one row
 
     const stats = {
       parsedRows: 0,
       alreadyStored: 0,
       newEmpty: 0,
       newFull: 0,
+      valid: 0,
       ignored: 0,
       reachedEOF: false,
     }
@@ -248,14 +248,16 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
           eventTarget.dispatchEvent(new CustomEvent('resolve'))
           stats.newFull++
         }
+        if (!isEmpty) {
+          stats.valid++
+        }
 
         if (result.meta.byteOffset + result.meta.byteCount >= byteLength) {
           // end of file
           stats.reachedEOF = true
         }
-        if (result.meta.byteOffset > lastByte) {
+        if (stats.valid >= numRowsToFetch) {
           // end of the requested range
-          stats.ignored += 1
           break
         }
       }
