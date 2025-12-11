@@ -500,7 +500,7 @@ export class Estimator {
     if (column >= this.#cache.columnNames.length) {
       throw new Error(`Column index out of bounds: ${column}`)
     }
-    const status = this.getStatus({ row })
+    const status = this.getStatus({ row, snapEOFToNumRows: true })
     if (status.status !== 'stored') {
       return undefined
     }
@@ -638,10 +638,11 @@ export class Estimator {
   /**
    * Get the status of a given row
    * @param options Options
-   * @param options.row The row number (0-based, non-negative integer).
+   * @param options.row The row number (0-based, non-negative integer)
+   * @param options.snapEOFToNumRows If true, if the last range ends at the EOF, ensure the row numbers match the estimated number of rows
    * @returns The status of the row
    */
-  getStatus({ row }: { row: number }): RowStatus {
+  getStatus({ row, snapEOFToNumRows }: { row: number, snapEOFToNumRows?: boolean }): RowStatus {
     checkNonNegativeInteger(row)
 
     if (this.numRows > 0 && row >= this.numRows) {
@@ -714,13 +715,12 @@ export class Estimator {
       // Estimate the number of the first row in the right range
       const rightFirstRow = rightRange === undefined
         ? this.numRows
-        // TODO(SL) restore this logic for end-of-file optimization? I removed it because it can lead to gaps between rows
         // special case: if the right range ends at the end of the file, we can compute from the total number of rows
-        // TODO(SL): beware, it can lead to gap between rows
-        // row 98477 of http://localhost:5173/?url=https://huggingface.co/datasets/Codatta/MM-Food-100K/resolve/main/MM-Food-100K.csv
-        // : (rightRange.nextByte >= this.#cache.byteLength - hotfixBuffer) && (rightRange.rowsCache.numRows > 0)
-        //     ? this.numRows - rightRange.rowsCache.numRows
-        : leftNextRow + Math.round((rightRange.firstByte - left.range.nextByte) / this.#averageRowByteCount)
+        // (under a flag, as it can lead to gaps between rows). Detail: removing -1, because it seems to fix a bug
+        // in cosovo? (weirdly, the last row is sometimes not counted properly)
+        : snapEOFToNumRows && (rightRange.nextByte >= this.#cache.byteLength - 1) && (rightRange.rowsCache.numRows > 0)
+          ? this.numRows - rightRange.rowsCache.numRows
+          : leftNextRow + Math.round((rightRange.firstByte - left.range.nextByte) / this.#averageRowByteCount)
 
       // third case: between two ranges
       if (row < rightFirstRow) {
