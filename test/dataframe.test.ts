@@ -435,12 +435,15 @@ describe('csvDataFrame', () => {
       expect(df.getCell({ row: 10, column: 'a' })).toBeUndefined()
       await df.fetch?.({ rowStart: 10, rowEnd: 11 })
       expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '27' }) // should be 10
-      // fetch again, which refreshes the average row size
+      // fetch again, which might refresh the average row size
       await df.fetch?.({ rowStart: 10, rowEnd: 11 })
-      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '08' }) // should be 10
-      // fetch again, which refreshes the average row size, but does not fetch more rows
+      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '10' }) // should be 10
+      // fetch again, which might refresh the average row size
       await df.fetch?.({ rowStart: 10, rowEnd: 11 })
-      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '08' }) // should be 10
+      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '09' }) // should be 10
+      // fetch again, which might refresh the average row size
+      await df.fetch?.({ rowStart: 10, rowEnd: 11 })
+      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '09' }) // should be 10
       revoke()
     })
 
@@ -491,12 +494,11 @@ describe('csvDataFrame', () => {
 
       // the first row can always be fetched
       await df.fetch?.({ rowStart: 0, rowEnd: 5 })
-      // note that only one row has actually been fetched
-      expect(resolveEventCount).toBe(1)
+      expect(resolveEventCount).toBe(8)
 
       // now, the offset for row 30 can be estimated, and rows can be fetched
       await df.fetch?.({ rowStart: 30, rowEnd: 31 })
-      expect(resolveEventCount).toBe(8)
+      expect(resolveEventCount).toBe(15)
 
       revoke()
     })
