@@ -769,7 +769,7 @@ describe('Estimator', () => {
     })
   })
 
-  describe('getRowNumber, getCell, guessFirstMissingRow and guessLastMissingRow', () => {
+  describe('getRowNumber, getCell, getFirstMissingRow and getLastMissingRowNumber', () => {
     it('return nothing for any row when the cache is empty', () => {
       const cache = new CSVCache({
         columnNames: ['col1', 'col2', 'col3'],
@@ -790,15 +790,15 @@ describe('Estimator', () => {
       expect(() => estimator.getCell({ row: 0, column: 3 })).toThrowError(/^Column index/)
 
       // The first byte offset is after the header
-      expect(estimator.guessFirstMissingRow({ minRow: 0 })).toEqual({ byteOffset: 10, row: 0, isEstimate: false })
+      expect(estimator.getFirstMissingRow({ minRow: 0 })).toEqual({ row: 0, byteOffset: { value: 10, isEstimate: false } })
       // No estimation available
-      expect(estimator.guessFirstMissingRow({ minRow: 1 })).toBeUndefined()
-      expect(estimator.guessFirstMissingRow({ minRow: 10 })).toBeUndefined()
-      expect(estimator.guessFirstMissingRow({ minRow: 100 })).toBeUndefined()
+      expect(estimator.getFirstMissingRow({ minRow: 1 })).toBeUndefined()
+      expect(estimator.getFirstMissingRow({ minRow: 10 })).toBeUndefined()
+      expect(estimator.getFirstMissingRow({ minRow: 100 })).toBeUndefined()
 
-      expect(estimator.guessLastMissingRow({ maxRow: 0 })).toEqual({ byteOffset: 10, row: 0, isEstimate: false })
-      expect(estimator.guessLastMissingRow({ maxRow: 10 })).toBeUndefined()
-      expect(estimator.guessLastMissingRow({ maxRow: 100 })).toBeUndefined()
+      expect(estimator.getLastMissingRowNumber({ maxRow: 0 })).toEqual(0)
+      expect(estimator.getLastMissingRowNumber({ maxRow: 10 })).toBeUndefined()
+      expect(estimator.getLastMissingRowNumber({ maxRow: 100 })).toBeUndefined()
     })
     it('return the correct value for a complete cache', () => {
       const cache = new CSVCache({
@@ -830,11 +830,11 @@ describe('Estimator', () => {
       expect(estimator.getCell({ row: 2, column: 0 })).toBeUndefined()
 
       // The cache is complete, so no estimation is needed
-      expect(estimator.guessFirstMissingRow({ minRow: 2 })).toBeUndefined()
-      expect(estimator.guessFirstMissingRow({ minRow: 10 })).toBeUndefined()
-      expect(estimator.guessLastMissingRow({ maxRow: 0 })).toBeUndefined() // no rows before row 0
-      expect(estimator.guessLastMissingRow({ maxRow: 1 })).toBeUndefined()
-      expect(estimator.guessLastMissingRow({ maxRow: 100 })).toBeUndefined()
+      expect(estimator.getFirstMissingRow({ minRow: 2 })).toBeUndefined()
+      expect(estimator.getFirstMissingRow({ minRow: 10 })).toBeUndefined()
+      expect(estimator.getLastMissingRowNumber({ maxRow: 0 })).toBeUndefined() // no rows before row 0
+      expect(estimator.getLastMissingRowNumber({ maxRow: 1 })).toBeUndefined()
+      expect(estimator.getLastMissingRowNumber({ maxRow: 100 })).toBeUndefined()
     })
     it('return the correct value for rows stored at the start (exact match)', () => {
       const cache = new CSVCache({
@@ -870,15 +870,15 @@ describe('Estimator', () => {
       expect(estimator.getCell({ row: 2, column: 0 })).toBeUndefined()
 
       // just after the first rows (exact)
-      expect(estimator.guessFirstMissingRow({ minRow: 2 })).toEqual({ byteOffset: 20, row: 2, isEstimate: false })
+      expect(estimator.getFirstMissingRow({ minRow: 2 })).toEqual({ row: 2, byteOffset: { value: 20, isEstimate: false } })
       // beyond the first rows (estimated)
-      expect(estimator.guessFirstMissingRow({ minRow: 3 })).toEqual({ byteOffset: 30, row: 3, isEstimate: true })
+      expect(estimator.getFirstMissingRow({ minRow: 3 })).toEqual({ row: 3, byteOffset: { value: 30, isEstimate: true } })
       // no missing row before row 1
-      expect(estimator.guessLastMissingRow({ maxRow: 1 })).toBeUndefined()
+      expect(estimator.getLastMissingRowNumber({ maxRow: 1 })).toBeUndefined()
       // at the end of the stored rows (exact)
-      expect(estimator.guessLastMissingRow({ maxRow: 2 })).toEqual({ byteOffset: 20, row: 2, isEstimate: false })
+      expect(estimator.getLastMissingRowNumber({ maxRow: 2 })).toEqual(2)
       // after the end of the stored rows (estimated)
-      expect(estimator.guessLastMissingRow({ maxRow: 3 })).toEqual({ byteOffset: 30, row: 3, isEstimate: true })
+      expect(estimator.getLastMissingRowNumber({ maxRow: 3 })).toEqual(3)
     })
     it('return the correct value for rows stored in the middle of the file (estimated match)', () => {
       const cache = new CSVCache({
@@ -919,18 +919,18 @@ describe('Estimator', () => {
       expect(estimator.getCell({ row: 3, column: 0 })).toBeUndefined()
 
       // at the start (exact)
-      expect(estimator.guessFirstMissingRow({ minRow: 0 })).toEqual({ byteOffset: 0, row: 0, isEstimate: false })
-      // just after the first estimated rows (estimated)
-      expect(estimator.guessFirstMissingRow({ minRow: 3 })).toEqual({ byteOffset: 30, row: 3, isEstimate: true })
-      // beyond the estimated rows (estimated)
-      expect(estimator.guessFirstMissingRow({ minRow: 8 })).toEqual({ byteOffset: 80, row: 8, isEstimate: true })
+      expect(estimator.getFirstMissingRow({ minRow: 0 })).toEqual({ row: 0, byteOffset: { value: 0, isEstimate: false } })
+      // just after the first estimated rows
+      expect(estimator.getFirstMissingRow({ minRow: 3 })).toEqual({ row: 3, byteOffset: { value: 30, isEstimate: false } })
+      // beyond the estimated rows
+      expect(estimator.getFirstMissingRow({ minRow: 8 })).toEqual({ row: 8, byteOffset: { value: 80, isEstimate: true } })
 
       // row 0 is missing
-      expect(estimator.guessLastMissingRow({ maxRow: 0 })).toEqual({ byteOffset: 0, row: 0, isEstimate: false })
-      // random rows (estimated) - this is incorrect, the row is stored. TODO(SL): check the rows stored in random ranges
-      expect(estimator.guessLastMissingRow({ maxRow: 2 })).toEqual({ byteOffset: 20, row: 2, isEstimate: true })
-      expect(estimator.guessLastMissingRow({ maxRow: 3 })).toEqual({ byteOffset: 30, row: 3, isEstimate: true })
-      expect(estimator.guessLastMissingRow({ maxRow: 8 })).toEqual({ byteOffset: 80, row: 8, isEstimate: true })
+      expect(estimator.getLastMissingRowNumber({ maxRow: 0 })).toEqual(0)
+      expect(estimator.getLastMissingRowNumber({ maxRow: 1 })).toEqual(0)
+      expect(estimator.getLastMissingRowNumber({ maxRow: 2 })).toEqual(0)
+      expect(estimator.getLastMissingRowNumber({ maxRow: 3 })).toEqual(3)
+      expect(estimator.getLastMissingRowNumber({ maxRow: 8 })).toEqual(8)
     })
     it('return nothing if the estimator was not refreshed yet', () => {
       const cache = new CSVCache({
@@ -949,10 +949,10 @@ describe('Estimator', () => {
       // not refreshed yet
       expect(estimator.getRowNumber({ row: 0 })).toBeUndefined()
       expect(estimator.getCell({ row: 0, column: 0 })).toBeUndefined()
-      expect(estimator.guessFirstMissingRow({ minRow: 0 })).toEqual({ byteOffset: 0, row: 0, isEstimate: false })
-      expect(estimator.guessFirstMissingRow({ minRow: 1 })).toBeUndefined()
-      expect(estimator.guessLastMissingRow({ maxRow: 0 })).toEqual({ byteOffset: 0, row: 0, isEstimate: false })
-      expect(estimator.guessLastMissingRow({ maxRow: 1 })).toBeUndefined()
+      expect(estimator.getFirstMissingRow({ minRow: 0 })).toEqual({ row: 0, byteOffset: { value: 0, isEstimate: false } })
+      expect(estimator.getFirstMissingRow({ minRow: 1 })).toBeUndefined()
+      expect(estimator.getLastMissingRowNumber({ maxRow: 0 })).toEqual(0)
+      expect(estimator.getLastMissingRowNumber({ maxRow: 1 })).toBeUndefined()
     })
     it('return the correct value when the last rows have been stored', () => {
       const cache = new CSVCache({
@@ -988,22 +988,20 @@ describe('Estimator', () => {
       expect(estimator.getCell({ row: 9, column: 0 })).toBeUndefined()
 
       // before the stored rows (estimated)
-      expect(estimator.guessFirstMissingRow({ minRow: 0 })).toEqual({ byteOffset: 10, row: 0, isEstimate: false })
-      expect(estimator.guessFirstMissingRow({ minRow: 6 })).toEqual({ byteOffset: 70, row: 6, isEstimate: true })
-      expect(estimator.guessFirstMissingRow({ minRow: 7 })).toEqual({ byteOffset: 80, row: 7, isEstimate: true })
-      // the following tests are incorrect, as these rows are stored. TODO(SL): check the rows stored in random ranges
-      expect(estimator.guessFirstMissingRow({ minRow: 8 })).toEqual({ byteOffset: 90, row: 8, isEstimate: true })
-      expect(estimator.guessFirstMissingRow({ minRow: 9 })).toEqual({ byteOffset: 99, row: 9, isEstimate: true })
-      expect(estimator.guessFirstMissingRow({ minRow: 10 })).toEqual({ byteOffset: 99, row: 10, isEstimate: true })
+      expect(estimator.getFirstMissingRow({ minRow: 0 })).toEqual({ row: 0, byteOffset: { value: 10, isEstimate: false } })
+      expect(estimator.getFirstMissingRow({ minRow: 6 })).toEqual({ row: 6, byteOffset: { value: 70, isEstimate: true } })
+      expect(estimator.getFirstMissingRow({ minRow: 7 })).toBeUndefined()
+      expect(estimator.getFirstMissingRow({ minRow: 8 })).toBeUndefined()
+      expect(estimator.getFirstMissingRow({ minRow: 9 })).toBeUndefined()
+      expect(estimator.getFirstMissingRow({ minRow: 10 })).toBeUndefined()
 
       // before the stored rows (estimated)
-      expect(estimator.guessLastMissingRow({ maxRow: 0 })).toEqual({ byteOffset: 10, row: 0, isEstimate: false })
-      expect(estimator.guessLastMissingRow({ maxRow: 6 })).toEqual({ byteOffset: 70, row: 6, isEstimate: true })
-      // the following tests are incorrect, as these rows are stored. TODO(SL): check the rows stored in random ranges
-      expect(estimator.guessLastMissingRow({ maxRow: 7 })).toEqual({ byteOffset: 80, row: 7, isEstimate: true })
-      expect(estimator.guessLastMissingRow({ maxRow: 8 })).toEqual({ byteOffset: 90, row: 8, isEstimate: true })
-      expect(estimator.guessLastMissingRow({ maxRow: 9 })).toEqual({ byteOffset: 99, row: 9, isEstimate: true })
-      expect(estimator.guessLastMissingRow({ maxRow: 10 })).toEqual({ byteOffset: 99, row: 10, isEstimate: true })
+      expect(estimator.getLastMissingRowNumber({ maxRow: 0 })).toEqual(0)
+      expect(estimator.getLastMissingRowNumber({ maxRow: 6 })).toEqual(6)
+      expect(estimator.getLastMissingRowNumber({ maxRow: 7 })).toEqual(6)
+      expect(estimator.getLastMissingRowNumber({ maxRow: 8 })).toEqual(6)
+      expect(estimator.getLastMissingRowNumber({ maxRow: 9 })).toBeUndefined()
+      expect(estimator.getLastMissingRowNumber({ maxRow: 10 })).toBeUndefined()
     })
   })
 })

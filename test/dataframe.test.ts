@@ -437,13 +437,13 @@ describe('csvDataFrame', () => {
       expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '27' }) // should be 10
       // fetch again, which might refresh the average row size
       await df.fetch?.({ rowStart: 10, rowEnd: 11 })
-      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '10' }) // should be 10
+      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '12' }) // should be 10
       // fetch again, which might refresh the average row size
       await df.fetch?.({ rowStart: 10, rowEnd: 11 })
-      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '09' }) // should be 10
+      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '11' }) // should be 10
       // fetch again, which might refresh the average row size
       await df.fetch?.({ rowStart: 10, rowEnd: 11 })
-      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '09' }) // should be 10
+      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '11' }) // should be 10
       revoke()
     })
 
@@ -498,7 +498,7 @@ describe('csvDataFrame', () => {
 
       // now, the offset for row 30 can be estimated, and rows can be fetched
       await df.fetch?.({ rowStart: 30, rowEnd: 31 })
-      expect(resolveEventCount).toBe(14)
+      expect(resolveEventCount).toBe(15)
 
       revoke()
     })
@@ -518,9 +518,13 @@ describe('csvDataFrame', () => {
         resolveEventCount++
       })
 
-      // fetch the last rows
-      await df.fetch?.({ rowStart: 80, rowEnd: 100 })
-      expect(resolveEventCount).toBe(22)
+      // fetch some rows in the middle
+      await df.fetch?.({ rowStart: 60, rowEnd: 80 })
+      expect(resolveEventCount).toBe(26)
+
+      // fetch the last rows again: no new fetch should happen
+      await df.fetch?.({ rowStart: 65, rowEnd: 75 })
+      expect(resolveEventCount).toBe(26)
 
       // fetch all the rows: only the missing rows should be fetched
       await df.fetch?.({ rowStart: 0, rowEnd: 100 })

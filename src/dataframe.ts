@@ -168,22 +168,25 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
     const fetchRowStart = Math.max(0, rowStart - extraRows)
     const fetchRowEnd = Math.min(rowEnd + extraRows)
 
-    const firstMissingRow = estimator.guessFirstMissingRow({ minRow: fetchRowStart })
-    const lastMissingRow = estimator.guessLastMissingRow({ maxRow: fetchRowEnd - 1 })
+    const firstMissingRow = estimator.getFirstMissingRow({ minRow: fetchRowStart })
+    const lastMissingRowNumber = estimator.getLastMissingRowNumber({ maxRow: fetchRowEnd - 1 })
+    const lastMissingRow = (lastMissingRowNumber ?? (fetchRowEnd - 1)) + 1 // make it exclusive
 
-    if (
-      firstMissingRow === undefined
-      || (lastMissingRow !== undefined && firstMissingRow.row > lastMissingRow.row)
-    ) {
-      // cannot estimate, or no missing rows in the requested range
+    if (firstMissingRow === undefined) {
+      // could not estimate the initial byte offset
       return
     }
     // Prepare the parsing options
-    const firstByte = firstMissingRow.byteOffset
+    const firstByte = firstMissingRow.byteOffset.value
     // if lastMissingRow is undefined, we fetch until fetchRowEnd
-    const numRowsToFetch = (lastMissingRow?.row ?? fetchRowEnd) - firstMissingRow.row
-    const initialState = firstMissingRow.isEstimate ? 'detect' : 'default'
-    const ignoreFirstRow = firstMissingRow.isEstimate ? true : false
+    const numRowsToFetch = lastMissingRow - firstMissingRow.row
+    const initialState = firstMissingRow.byteOffset.isEstimate ? 'detect' : 'default'
+    const ignoreFirstRow = firstMissingRow.byteOffset.isEstimate ? true : false
+
+    if (numRowsToFetch <= 0) {
+      // nothing to fetch
+      return
+    }
 
     const stats = {
       parsedRows: 0,
