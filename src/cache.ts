@@ -1,12 +1,43 @@
 import type { Newline, ParseResult } from 'cosovo'
-import { createEventTarget } from 'hightable'
 
-import { checkNonNegativeInteger } from './helpers.js'
+import { checkInteger, checkNonNegativeInteger } from './helpers.js'
 
-export interface CSVCacheEvents {
-  'num-rows-estimate-updated': {
-    numRows: number
-    isEstimate: boolean
+/**
+ * Cache of parsed rows
+ */
+export class RowsCache {
+  #rows: string[][] = []
+  #byteCount = 0
+
+  get rows(): string[][] {
+    return this.#rows
+  }
+
+  get byteCount(): number {
+    return this.#byteCount
+  }
+
+  get numRows(): number {
+    return this.#rows.length
+  }
+
+  append(row: { byteCount: number, cells: string[] }) {
+    checkNonNegativeInteger(row.byteCount)
+    this.#rows.push(row.cells.slice())
+    this.#byteCount += row.byteCount
+  }
+
+  prepend(row: { byteCount: number, cells: string[] }) {
+    checkNonNegativeInteger(row.byteCount)
+    this.#rows.unshift(row.cells.slice())
+    this.#byteCount += row.byteCount
+  }
+
+  merge(other: RowsCache) {
+    for (const row of other.rows) {
+      this.#rows.push(row)
+    }
+    this.#byteCount += other.byteCount
   }
 }
 
@@ -15,22 +46,20 @@ export interface CSVCacheEvents {
  */
 export class CSVRange {
   #firstByte: number // byte position of the start of the range (excludes the ignored bytes if the range starts in the middle of a row)
-  #byteCount = 0 // number of bytes in the range
-  #rowByteCount = 0 // number of bytes in the range's rows (excludes ignored bytes)
-  #rows: string[][] = [] // sorted array of the range rows, filtering out the empty rows and the header if any
-  #firstRow: number // index of the first row in the range (0-based)
+  #byteCount: number = 0 // number of bytes in the range (includes ignored bytes)
+  #rowsCache: RowsCache // the cached rows. It excludes the ignored rows (empty rows and header if any)
 
-  constructor({ firstByte, firstRow }: { firstByte: number, firstRow: number }) {
+  constructor({ firstByte }: { firstByte: number }) {
     this.#firstByte = checkNonNegativeInteger(firstByte)
-    this.#firstRow = checkNonNegativeInteger(firstRow)
+    this.#rowsCache = new RowsCache()
   }
 
   /*
-    * Get the number of rows in the range
-    * @returns The number of rows in the range
+    * Get the slice of cached rows
+    * @returns The slice of cached rows
     */
-  get rowCount() {
-    return this.#rows.length
+  get rowsCache() {
+    return this.#rowsCache
   }
 
   /**
@@ -50,46 +79,11 @@ export class CSVRange {
   }
 
   /**
-   * Get the first row number of the range
-   * @returns The first row number of the range
+   * Get the first byte of the next row in the range
+   * @returns The next row's first byte
    */
-  get firstRow(): number {
-    return this.#firstRow
-  }
-
-  /**
-   * Set the first row number of the range
-   * @param value The first row number
-   */
-  set firstRow(value: number) {
-    this.#firstRow = checkNonNegativeInteger(value)
-  }
-
-  /**
-   * Get the row number and first byte of the next row in the range
-   * @returns The next row number and first byte
-   */
-  get next(): { row: number, firstByte: number } {
-    return {
-      row: this.#firstRow + this.#rows.length,
-      firstByte: this.#firstByte + this.#byteCount,
-    }
-  }
-
-  /**
-   * Get the rows in the range
-   * @returns The rows in the range
-   */
-  get rows(): string[][] {
-    return this.#rows
-  }
-
-  /**
-   * Get the number of bytes covered by the rows in the range
-   * @returns The number of bytes in the range's rows
-   */
-  get rowByteCount(): number {
-    return this.#rowByteCount
+  get nextByte(): number {
+    return this.#firstByte + this.#byteCount
   }
 
   /**
@@ -107,8 +101,7 @@ export class CSVRange {
     }
     this.#byteCount = row.byteOffset + row.byteCount - this.#firstByte
     if (row.cells) {
-      this.#rows.push(row.cells.slice())
-      this.#rowByteCount += row.byteCount
+      this.#rowsCache.append({ cells: row.cells, byteCount: row.byteCount })
     }
   }
 
@@ -128,25 +121,8 @@ export class CSVRange {
     this.#firstByte = row.byteOffset
     this.#byteCount += row.byteCount
     if (row.cells) {
-      this.#firstRow -= 1
-      this.#rows.unshift(row.cells.slice())
-      this.#rowByteCount += row.byteCount
+      this.#rowsCache.prepend({ cells: row.cells, byteCount: row.byteCount })
     }
-  }
-
-  /**
-   * Get the cells of a given row
-   * @param options Options
-   * @param options.row  The row number (0-based)
-   * @returns The cells of the row, or undefined if the row is not in this range
-   */
-  getCells({ row }: { row: number }): string[] | undefined {
-    checkNonNegativeInteger(row)
-    const rowIndex = row - this.#firstRow
-    if (rowIndex < 0 || rowIndex >= this.#rows.length) {
-      return undefined
-    }
-    return this.#rows[rowIndex]
   }
 
   /**
@@ -154,14 +130,22 @@ export class CSVRange {
    * @param followingRange The range to merge
    */
   merge(followingRange: CSVRange): void {
-    if (this.next.firstByte !== followingRange.firstByte) {
+    if (this.nextByte !== followingRange.firstByte) {
       throw new Error('Cannot merge ranges: not contiguous')
     }
     this.#byteCount += followingRange.byteCount
-    this.#rowByteCount += followingRange.rowByteCount
-    for (const row of followingRange.rows) {
-      this.#rows.push(row)
-    }
+    this.#rowsCache.merge(followingRange.rowsCache)
+  }
+
+  /**
+   * Get the cells of a given cached row (0-based index in this range, no ignored rows)
+   * @param rowIndex  The row index in this range (0-based)
+   * @returns The cells of the row, or undefined if the row is not in this range
+   */
+  getRow(rowIndex: number): string[] | undefined {
+    // if negative or out of bounds, return undefined
+    checkInteger(rowIndex)
+    return this.#rowsCache.rows[rowIndex]
   }
 }
 
@@ -197,18 +181,6 @@ export class CSVCache {
    * The CSV newline character(s)
    */
   #newline: Newline
-  /**
-   * The average number of bytes per row, used for estimating row positions
-   */
-  #averageRowByteCount: number | undefined = undefined
-  /**
-   * The estimated number of rows in the CSV file
-   */
-  #numRowsEstimate: { numRows: number, isEstimate: boolean } = { numRows: 0, isEstimate: true }
-  /**
-   * An event target to emit events
-   */
-  #eventTarget = createEventTarget<CSVCacheEvents>()
 
   constructor({ columnNames, headerByteCount, byteLength, delimiter, newline }: { columnNames: string[], headerByteCount?: number, byteLength: number, delimiter: string, newline: Newline }) {
     headerByteCount ??= 0
@@ -225,15 +197,40 @@ export class CSVCache {
     this.#headerByteCount = headerByteCount
     this.#delimiter = delimiter
     this.#newline = newline
-    this.#serial = new CSVRange({ firstByte: 0, firstRow: 0 })
+
+    const serial = new CSVRange({ firstByte: 0 })
     // Account for the header row and previous ignored rows if any
-    this.#serial.append({
+    serial.append({
       byteOffset: 0,
       byteCount: headerByteCount,
     })
+    this.#serial = serial
     this.#random = []
+  }
 
-    this.#updateAverageRowByteCount()
+  /**
+   * Create a CSVCache from a header row
+   * @param options Options
+   * @param options.header The parsed header row
+   * @param options.byteLength The byte length of the CSV file
+   * @returns A new CSVCache instance
+   */
+  static fromHeader({ header, byteLength }: { header: ParseResult, byteLength: number }): CSVCache {
+    return new CSVCache({
+      columnNames: header.row,
+      byteLength,
+      delimiter: header.meta.delimiter,
+      newline: header.meta.newline,
+      headerByteCount: header.meta.byteOffset + header.meta.byteCount,
+    })
+  }
+
+  /**
+   * Get the number of bytes in the CSV file
+   * @returns The number of bytes in the CSV file
+   */
+  get byteLength(): number {
+    return this.#byteLength
   }
 
   /**
@@ -253,27 +250,11 @@ export class CSVCache {
   }
 
   /**
-   * Get the number of rows in the cache
-   * @returns The number of rows in the cache
-   */
-  get rowCount(): number {
-    return this.#serial.rowCount + this.#random.reduce((sum, range) => sum + range.rowCount, 0)
-  }
-
-  /**
    * Get the CSV delimiter
    * @returns The CSV delimiter
    */
   get delimiter(): string {
     return this.#delimiter
-  }
-
-  /**
-   * Get the number of columns
-   * @returns The number of columns
-   */
-  get columnCount(): number {
-    return this.#columnNames.length
   }
 
   /**
@@ -285,91 +266,196 @@ export class CSVCache {
   }
 
   /**
-   * Get an estimate of the total number of rows in the CSV file
-   * @returns The estimated number of rows and if it's an estimate
+   * Get the serial range
+   * @returns The serial range
    */
-  get numRowsEstimate(): { numRows: number, isEstimate: boolean } {
-    return this.#numRowsEstimate
+  get serialRange(): CSVRange {
+    return this.#serial
   }
 
   /**
-   * Get the event target to listen to cache events
-   * @returns The event target
+   * Get the random access ranges
+   * @returns The random access ranges
    */
-  get eventTarget(): ReturnType<typeof createEventTarget<CSVCacheEvents>> {
-    return this.#eventTarget
+  get randomRanges(): CSVRange[] {
+    return this.#random.slice()
   }
 
   /**
-   * Update the average row byte count based on the cached rows
+   * Check if the entire CSV file is cached
+   * @returns True if the entire CSV file is cached
    */
-  #updateAverageRowByteCount(): void {
-    const rowByteCount = this.#serial.rowByteCount + this.#random.reduce((sum, range) => sum + range.rowByteCount, 0)
-    const rowCount = this.#serial.rowCount + this.#random.reduce((sum, range) => sum + range.rowCount, 0)
-    if (rowCount === 0) {
-      this.#averageRowByteCount = undefined
+  get complete(): boolean {
+    // v8 ignore if -- @preserve
+    if (this.#serial.nextByte > this.#byteLength) {
+      throw new Error('Inconsistent state: serial range exceeds the file length')
     }
-    else {
-      this.#averageRowByteCount = rowByteCount / rowCount
+    const complete = this.#serial.nextByte === this.#byteLength
+    // v8 ignore if -- @preserve
+    if (complete && this.#random.length > 0) {
+      throw new Error('Inconsistent state: serial range covers the entire file, but there are random ranges')
     }
-    this.#updateNumRowsEstimate()
+    return complete
   }
 
   /**
-   * Re-assign row numbers in random ranges to reduce overlaps
+   * Store a new row
+   * If the byte range is already cached, false is immediately returned.
+   * If only part of the byte range is cached, an error is thrown.
+   * @param row The row to store.
+   * @param row.byteOffset The byte offset of the row in the file.
+   * @param row.byteCount The number of bytes of the row.
+   * @param row.cells The cells of the row. If not provided, the row is considered ignored and not cached (i.e., empty or header).
+   * @returns True if the row was stored successfully.
    */
-  updateRowEstimates(): void {
-    const averageRowByteCount = this.averageRowByteCount
-    if (averageRowByteCount === undefined || averageRowByteCount === 0) {
-      return
+  store(row: { byteOffset: number, byteCount: number, cells?: string[] }): boolean {
+    // TODO(SL): forbid storing rows before the headerByteCount?
+    checkNonNegativeInteger(row.byteOffset)
+    checkNonNegativeInteger(row.byteCount)
+
+    if (row.byteOffset + row.byteCount > this.#byteLength) {
+      throw new Error('Cannot store the row: byte range is out of bounds')
     }
 
-    let previousRange = this.#serial
+    let leftRange = this.#serial
 
-    // loop on the random ranges
-    for (const range of this.#random) {
+    // loop on the ranges to find where to put the row
+    for (const [i, rightRange] of [...this.#random, undefined].entries()) {
+      // at this point, the row cannot start before the left range
+
       // v8 ignore if -- @preserve
-      if (range.firstByte <= previousRange.next.firstByte) {
-        // should not happen
-        throw new Error('Cannot update row estimates: overlap with previous range')
+      if (row.byteOffset < leftRange.firstByte) {
+        throw new Error('Inconsistent state: row is before the left range')
       }
 
-      const firstRow = Math.max(
-        // ensure at least one row gap
-        previousRange.next.row + 1,
-        // estimate based on byte position
-        Math.round(previousRange.next.row + (range.firstByte - previousRange.next.firstByte) / averageRowByteCount),
-      )
+      if (row.byteOffset < leftRange.nextByte) {
+        // the row starts inside the left range
+        if (row.byteOffset + row.byteCount > leftRange.nextByte) {
+          // but it ends after the left range: we cannot store the row
+          throw new Error('Cannot store the row: the first bytes are already cached, but not the last ones.')
+        }
+        // it ends inside the left range: the row is already cached
+        return false
+      }
+      // at this point, the row starts after the left range
 
-      range.firstRow = firstRow
+      if (rightRange && row.byteOffset >= rightRange.firstByte) {
+        // the row starts inside the right range or after. Go to the next range.
+        leftRange = rightRange
+        continue
+      }
 
-      previousRange = range
+      // at this point, the row starts before the right range (or there is no right range)
+
+      if (rightRange && row.byteOffset + row.byteCount > rightRange.firstByte) {
+        // but it ends after the start of the right range: we cannot store the row
+        throw new Error('Cannot store the row: the first bytes are not cached, but other bytes are already cached.')
+      }
+
+      // at this point, the row ends before the right range (or there is no right range).
+      // The row can be contiguous to the left range, or to the right range, or to both, or isolated.
+      // It will be stored.
+
+      if (row.byteOffset === leftRange.nextByte) {
+        // The row is contiguous to the left range: append it.
+        leftRange.append(row)
+        // merge with the right range if needed (after appending to the left range)
+        if (rightRange && leftRange.nextByte === rightRange.firstByte) {
+          // merge the left and right ranges
+          this.#merge(leftRange, rightRange)
+        }
+        return true
+      }
+
+      // at this point, the row is not contiguous to the left range
+
+      if (rightRange && row.byteOffset + row.byteCount === rightRange.firstByte) {
+        // The row is contiguous to the right range: prepend it.
+        rightRange.prepend(row)
+        return true
+      }
+
+      // at this point, the row is not contiguous to either range
+
+      // create a new random range and insert it after the left range
+      const newRange = new CSVRange({ firstByte: row.byteOffset })
+      newRange.append(row)
+      this.#random.splice(i, 0, newRange)
+      return true
     }
-  }
 
-  get averageRowByteCount(): number | undefined {
-    return this.#averageRowByteCount
-  }
-
-  get allRowsCached(): boolean {
-    return this.#serial.next.firstByte >= this.#byteLength
+    // v8 ignore next -- @preserve
+    throw new Error('Inconsistent state: this point should not be reachable')
   }
 
   /**
-   * Update the estimated number of rows in the CSV file
+   * Merge two CSV ranges
+   * @param range The first range. It can be the serial range, or a random range.
+   * @param followingRange The second range, must be immediately after the first range. It is a random range.
    */
-  #updateNumRowsEstimate(): void {
-    const averageRowByteCount = this.averageRowByteCount
-    const numRows = this.allRowsCached
-      ? this.rowCount
-      : averageRowByteCount === 0 || averageRowByteCount === undefined
-        ? 0
-        : Math.round((this.#byteLength - this.headerByteCount) / averageRowByteCount)
-    const isEstimate = !this.allRowsCached
-    if (this.#numRowsEstimate.numRows !== numRows || this.#numRowsEstimate.isEstimate !== isEstimate) {
-      this.#numRowsEstimate = { numRows, isEstimate }
-      this.#eventTarget.dispatchEvent(new CustomEvent('num-rows-estimate-updated'))
+  #merge(range: CSVRange, followingRange: CSVRange): void {
+    const index = this.#random.indexOf(followingRange)
+    // v8 ignore if -- @preserve
+    if (index === -1) {
+      throw new Error('Cannot merge ranges: following range not found in cache')
     }
+    range.merge(followingRange)
+    // remove followingRange from the random ranges
+    this.#random.splice(index, 1)
+  }
+}
+
+export class Estimator {
+  /**
+   * The CSV cache
+   */
+  #cache: CSVCache
+
+  /**
+   * The average number of bytes per row, used for estimating row positions. Undefined if the cache is complete.
+   */
+  #averageRowByteCount: number | undefined = 0
+
+  constructor({ cache }: { cache: CSVCache }) {
+    this.#cache = cache
+  }
+
+  /**
+   * Get a copy of the estimator
+   * @returns A copy of the estimator
+   */
+  copy(): Estimator {
+    const copy = new Estimator({ cache: this.#cache })
+    copy.#averageRowByteCount = this.#averageRowByteCount
+    return copy
+  }
+
+  /**
+   * Get the estimated number of rows in the CSV file
+   * @returns The estimated number of rows
+   */
+  get numRows(): number {
+    return this.#averageRowByteCount === 0
+      ? 0
+      : this.#averageRowByteCount === undefined
+        ? this.#computeNumCachedRows()
+        : Math.round((this.#cache.byteLength - this.#cache.headerByteCount) / this.#averageRowByteCount)
+  }
+
+  /**
+   * Get if the number of rows is estimated
+   * @returns True if the number of rows is estimated
+   */
+  get isNumRowsEstimated(): boolean {
+    return this.#averageRowByteCount !== undefined
+  }
+
+  /**
+   * Get the maximum number of rows (infinity if estimated, numRows if exact)
+   * @returns The maximum number of rows
+   */
+  get maxNumRows(): number {
+    return this.isNumRowsEstimated ? Infinity : this.numRows
   }
 
   /**
@@ -378,19 +464,9 @@ export class CSVCache {
    * @param options.row  The row number (0-based)
    * @returns The cells of the row, or undefined if the row is not in this range
    */
-  #getCells({ row }: { row: number }): string[] | undefined {
-    const cells = this.#serial.getCells({ row })
-    if (cells !== undefined) {
-      return cells
-    }
-    // find the range containing this row
-    for (const range of this.#random) {
-      const cells = range.getCells({ row })
-      if (cells !== undefined) {
-        return cells
-      }
-    }
-    return undefined
+  isStored({ row }: { row: number }): boolean {
+    const cells = this.#getCells({ row })
+    return cells !== undefined
   }
 
   /**
@@ -402,7 +478,7 @@ export class CSVCache {
    */
   getCell({ row, column }: { row: number, column: number }): { value: string } | undefined {
     checkNonNegativeInteger(column)
-    if (column >= this.columnCount) {
+    if (column >= this.#cache.columnNames.length) {
       throw new Error(`Column index out of bounds: ${column}`)
     }
     const cells = this.#getCells({ row })
@@ -422,182 +498,135 @@ export class CSVCache {
    * @returns The row number, or undefined if not found
    */
   getRowNumber({ row }: { row: number }): { value: number } | undefined {
-    if (this.#getCells({ row }) === undefined) {
+    if (row >= 0 && row < this.numRows) {
+      return { value: row }
+    }
+  }
+
+  // TODO(SL): look at the ranges to improve the estimation, in particular to avoid gaps between successive rows
+  // TODO(SL): also tell if it's a guess or exact
+  guessByteOffset({ row }: { row: number }): number | undefined {
+    // special case: even if averageRowByteCount is undefined or 0, we know the byte offset of row 0
+    if (row === 0) {
+      return this.#cache.headerByteCount
+    }
+    if (this.#averageRowByteCount === 0 || this.#averageRowByteCount === undefined) {
       return undefined
     }
-    return { value: row }
+    return Math.max(0,
+      Math.min(this.#cache.byteLength - 1,
+        this.#cache.headerByteCount + Math.round(row * this.#averageRowByteCount),
+      ),
+    )
   }
 
   /**
-   * Store a new row
-   * @param row The row to store.
-   * @param row.byteOffset The byte offset of the row in the file.
-   * @param row.byteCount The number of bytes of the row.
-   * @param row.firstRow The first row index (0-based) used if a new range is created.
-   * @param row.cells The cells of the row. If not provided, the row is considered ignored and not cached (i.e., empty or header).
+   * Refresh the internal state (average row byte count)
+   * Don't update the internal state if the change is not significant (<1%)
+   * @returns True if the internal state has been updated
    */
-  store(row: { byteOffset: number, byteCount: number, firstRow: number, cells?: string[] }): void {
-    checkNonNegativeInteger(row.byteOffset)
-    checkNonNegativeInteger(row.byteCount)
-    if (row.byteOffset + row.byteCount > this.#byteLength) {
-      throw new Error('Cannot store the row: byte range is out of bounds')
+  refresh(): boolean {
+    const numCachedBytes = this.#computeNumCachedBytes()
+    const numCachedRows = this.#computeNumCachedRows()
+    const complete = this.#cache.complete
+
+    if (complete) {
+      if (this.#averageRowByteCount === undefined) {
+        // already in the same state
+        return false
+      }
+      // update
+      this.#averageRowByteCount = undefined
+      return true
     }
 
-    let previousRange = this.#serial
-
-    // loop on the ranges to find where to put the row
-    for (const [i, nextRange] of [...this.#random, undefined].entries()) {
-      if (row.byteOffset < previousRange.next.firstByte) {
-        throw new Error('Cannot store the row: overlap with previous range')
-      }
-
-      // the row is after the next range
-      if (nextRange && row.byteOffset >= nextRange.next.firstByte) {
-        previousRange = nextRange
-        continue
-      }
-
-      if (nextRange && row.byteOffset + row.byteCount > nextRange.firstByte) {
-        throw new Error('Cannot store the row: overlap with next range')
-      }
-
-      // append to the previous range
-      if (row.byteOffset === previousRange.next.firstByte) {
-        previousRange.append(row)
-        // merge with the next range if needed
-        if (nextRange && previousRange.next.firstByte === nextRange.firstByte) {
-          // merge nextRange into previousRange
-          this.#merge(previousRange, nextRange)
-        }
-        break
-      }
-
-      // prepend to the next range
-      if (nextRange && row.byteOffset + row.byteCount === nextRange.firstByte) {
-        nextRange.prepend(row)
-        break
-      }
-
-      // create a new random range between previousRange and nextRange
-      // Note that we might have a situation where firstRow overlaps with other ranges.
-      const newRange = new CSVRange({ firstByte: row.byteOffset, firstRow: row.firstRow })
-      newRange.append(row)
-      this.#random.splice(i, 0, newRange)
-      break
-    }
-
-    // Update the average row byte count
-    this.#updateAverageRowByteCount()
-  }
-
-  /**
-   * Merge two CSV ranges
-   * @param range The first range. It can be the serial range, or a random range.
-   * @param followingRange The second range, must be immediately after the first range. It is a random range.
-   */
-  #merge(range: CSVRange, followingRange: CSVRange): void {
-    const index = this.#random.indexOf(followingRange)
     // v8 ignore if -- @preserve
-    if (index === -1) {
-      throw new Error('Cannot merge ranges: following range not found in cache')
-    }
-    range.merge(followingRange)
-    // remove followingRange from the random ranges
-    this.#random.splice(index, 1)
-  }
-
-  /**
-   * Get the next missing row for the given row range
-   * @param options Options
-   * @param options.rowStart The start row index (0-based, inclusive)
-   * @param options.rowEnd The end row index (0-based, exclusive)
-   * @param options.prefixRowsToEstimate Number of average prefix rows to prefetch when estimating (because the first row may be partial). Defaults to 3.
-   * @returns undefined if no missing row, or an object with:
-   *  - the first byte to start fetching data
-   *  - the first byte to store data (after ignoring some bytes)
-   *  - the expected row number of the first fetched row
-   */
-  getNextMissingRow({ rowStart, rowEnd, prefixRowsToEstimate }: { rowStart: number, rowEnd: number, prefixRowsToEstimate?: number }): { firstByteToFetch: number, firstByteToStore: number, firstRow: number } | undefined {
-    checkNonNegativeInteger(rowStart)
-    checkNonNegativeInteger(rowEnd)
-    prefixRowsToEstimate ??= 3
-    checkNonNegativeInteger(prefixRowsToEstimate)
-
-    // try every empty range between cached rows
-    let cursor = this.#serial.next
-
-    if (cursor.firstByte >= this.#byteLength) {
-      // No missing row if all rows are cached
-      return undefined
+    if (this.#averageRowByteCount === undefined) {
+      throw new Error('Incoherent state: the cache state cannot go from complete to incomplete')
     }
 
-    for (const nextRange of [...this.#random, { firstRow: Infinity, next: { row: Infinity, firstByte: this.#byteLength } }]) {
-      if (rowStart < cursor.row) {
-        // ignore cached rows
-        rowStart = cursor.row
-      }
-      if (rowEnd <= rowStart) {
-        // no missing row (rowEnd is exclusive)
-        return
-      }
-      if (rowStart < nextRange.firstRow) {
-        // the next row to fetch is between the cursor and the next range
-        if (rowStart === cursor.row || this.averageRowByteCount === undefined) {
-          // if the requested row is the cursor, we can use its firstByte property directly
-          // Same if we cannot estimate positions
-          return { firstByteToFetch: cursor.firstByte, firstByteToStore: cursor.firstByte, firstRow: cursor.row }
-        }
-
-        // estimate the byte position based on the average row byte count.
-        const gapRows = rowStart - cursor.row
-        const gapBytes = Math.round(gapRows * this.averageRowByteCount)
-        // Start storing here:
-        const firstByteToStore = Math.max(cursor.firstByte + gapBytes, 0)
-        // avoid going beyond the end of the file
-        if (firstByteToStore >= this.#byteLength) {
-          return undefined
-        }
-
-        // Start fetching some rows before:
-        const prefixBytes = Math.round(prefixRowsToEstimate * this.averageRowByteCount) // number of bytes to ignore at the start when estimating
-        const firstByteToFetch = Math.max(firstByteToStore - prefixBytes, 0)
-
-        return {
-          firstByteToFetch,
-          firstByteToStore,
-          firstRow: rowStart,
-        }
-      }
-      // try the next missing range
-      cursor = nextRange.next
-    }
-  }
-
-  /**
-   * Check if the given byte range is stored in the cache.
-   * @param options Options
-   * @param options.byteOffset The byte offset of the range.
-   * @returns True if the byte range is stored, false otherwise.
-   */
-  isStored({ byteOffset }: { byteOffset: number }): boolean {
-    checkNonNegativeInteger(byteOffset)
-
-    for (const range of [this.#serial, ...this.#random]) {
-      if (range.firstByte <= byteOffset && byteOffset < range.next.firstByte) {
-        return true
-      }
+    if (numCachedRows === 0) {
+      // no progress
+      return false
     }
 
+    const averageRowByteCount = numCachedBytes / numCachedRows
+
+    if (
+      this.#averageRowByteCount === 0
+      // TODO(SL): instead of a fixed threshold, use a dynamic one based on the number of cached rows?
+      // or on the variance of the row byte counts?
+      || Math.abs(averageRowByteCount - this.#averageRowByteCount) / this.#averageRowByteCount > 0.01
+    ) {
+      this.#averageRowByteCount = averageRowByteCount
+      return true
+    }
+
+    // no significant changes, ignore
     return false
   }
 
-  static fromHeader({ header, byteLength }: { header: ParseResult, byteLength: number }): CSVCache {
-    return new CSVCache({
-      columnNames: header.row,
-      byteLength,
-      delimiter: header.meta.delimiter,
-      newline: header.meta.newline,
-      headerByteCount: header.meta.byteOffset + header.meta.byteCount,
-    })
+  /**
+   * Get the cells of a given row
+   * @param options Options
+   * @param options.row  The row number (0-based)
+   * @returns The cells of the row, or undefined if the row is not in this range
+   */
+  #getCells({ row }: { row: number }): string[] | undefined {
+    const cells = this.#cache.serialRange.getRow(row)
+    if (cells !== undefined) {
+      return cells
+    }
+    // find the range containing this row
+    // try the last range first
+    for (const [i, range] of this.#cache.randomRanges.reverse().entries()) {
+      // due to a bug in cosovo?, the last byte of https://huggingface.co/datasets/Mosab-Rezaei/19th-century-novelists/resolve/main/Dataset - Five Authors .csv
+      // is not counted. To make the demo work, we allow a 1-byte buffer for the last range.
+      const hotfixBuffer = 1
+      const estimatedFirstRow = (i === 0 && range.nextByte >= this.#cache.byteLength - hotfixBuffer && range.rowsCache.numRows > 0)
+        // special case: last range, and the last stored row is the last row of the file
+        ? this.numRows - range.rowsCache.numRows
+        // normal case: estimate based on the byte offset
+        : this.#guessRowNumberInRandomRange({ byteOffset: range.firstByte })
+      if (estimatedFirstRow === undefined) {
+        return undefined
+      }
+      const cells = range.getRow(row - estimatedFirstRow)
+      if (cells !== undefined) {
+        return cells
+      }
+    }
+    return undefined
+  }
+
+  // TODO(SL): look at the ranges to improve the estimation, in particular to avoid gaps between successive rows
+  #guessRowNumberInRandomRange({ byteOffset }: { byteOffset: number }): number | undefined {
+    // v8 ignore if -- @preserve
+    if (this.#averageRowByteCount === undefined) {
+      // if the cache is complete, there is no random range, so this should not happen
+      throw new Error('Incoherent state: cannot guess row number in random range when the cache is complete')
+    }
+    if (this.#averageRowByteCount === 0) {
+      // no estimation available
+      return undefined
+    }
+    // estimation based on the average row byte count
+    return Math.max(Math.round((byteOffset - this.#cache.headerByteCount) / this.#averageRowByteCount), 0)
+  }
+
+  /**
+   * Get the number of cached rows
+   * @returns The number of cached rows
+   */
+  #computeNumCachedRows(): number {
+    return this.#cache.serialRange.rowsCache.numRows + this.#cache.randomRanges.reduce((sum, range) => sum + range.rowsCache.numRows, 0)
+  }
+
+  /**
+   * Get the number of cached bytes
+   * @returns The number of cached bytes
+   */
+  #computeNumCachedBytes(): number {
+    return this.#cache.serialRange.rowsCache.byteCount + this.#cache.randomRanges.reduce((sum, range) => sum + range.rowsCache.byteCount, 0)
   }
 }

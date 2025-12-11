@@ -254,7 +254,7 @@ describe('csvDataFrame', () => {
       revoke()
     })
 
-    it('should return undefined for not yet cached rows', async () => {
+    it('should return an estimated value when possible for not yet cached rows', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
       const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
@@ -263,7 +263,7 @@ describe('csvDataFrame', () => {
         initialRowCount: 2,
         chunkSize: 5,
       })
-      expect(df.getRowNumber({ row: 2 })).toBeUndefined()
+      expect(df.getRowNumber({ row: 2 })).toEqual({ value: 2 })
       revoke()
     })
 
@@ -371,14 +371,14 @@ describe('csvDataFrame', () => {
       revoke()
     })
 
-    it('should throw when fetching out-of-bound rows, if the dataframe is fully loaded', async () => {
+    it('does not throw when fetching out-of-bound rows, if the dataframe is fully loaded', async () => {
       const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n'
       const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
       })
-      await expect(df.fetch?.({ rowStart: 5, rowEnd: 10 })).rejects.toThrow()
+      await expect(df.fetch?.({ rowStart: 5, rowEnd: 10 })).resolves.toBeUndefined()
       revoke()
     })
 
@@ -398,24 +398,33 @@ describe('csvDataFrame', () => {
     })
 
     it('should fetch rows at a random position if requested', async () => {
-      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
+      // padding the strings to have more consistent row sizes
+      const text = 'a\n' + Array(100).fill(0).map((_, i) => i.toString().padStart(2, '0')).join('\n') + '\n'
       const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
-        initialRowCount: 2,
+        initialRowCount: 5,
         chunkSize: 5,
       })
-      expect(df.getCell({ row: 3, column: 'a' })).toBeUndefined()
-      await df.fetch?.({ rowStart: 3, rowEnd: 4 })
-      // row 3 is now cached, while row 2 is still not cached
-      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '10' })
-      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '00' })
+      expect(df.getCell({ row: 30, column: 'a' })).toBeUndefined()
+      await df.fetch?.({ rowStart: 30, rowEnd: 31 })
+      // row 30 is now cached
+      expect(df.getRowNumber({ row: 30 })).toStrictEqual({ value: 30 })
+      expect(df.getCell({ row: 30, column: 'a' })).toStrictEqual({ value: '30' })
+      // some rows around too
+      expect(df.getCell({ row: 29, column: 'a' })).toStrictEqual({ value: '29' })
+      expect(df.getCell({ row: 31, column: 'a' })).toStrictEqual({ value: '31' })
+      // but not far away
+      expect(df.getCell({ row: 20, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 40, column: 'a' })).toBeUndefined()
+
       revoke()
     })
 
     it('will fetch an incorrect row if the average row size had been overestimated', async () => {
-      const text = 'a,b,c\n111,222,333\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
+      const text = 'a\n' + '0'.repeat(10) + '\n' + Array(99).fill(0).map((_, i) => (i + 1).toString().padStart(2, '0')).join('\n')
       const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
@@ -423,116 +432,15 @@ describe('csvDataFrame', () => {
         initialRowCount: 1,
         chunkSize: 5,
       })
-      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
-      await df.fetch?.({ rowStart: 2, rowEnd: 5 })
-      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '10' }) // should be 7
-      expect(df.getCell({ row: 3, column: 'b' })).toStrictEqual({ value: '14' }) // should be 11
-      expect(df.getCell({ row: 4, column: 'c' })).toBeUndefined() // should be 15
-      revoke()
-    })
-
-    it('fails to fetch the last rows if the average row size has been overestimated', async () => {
-      const text = 'a,b,c\n111111111,222222222,333333333\n,4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
-      const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
-      const df = await csvDataFrame({
-        url,
-        byteLength: fileSize,
-        initialRowCount: 1,
-        chunkSize: 5,
-      })
-      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      await df.fetch?.({ rowStart: 3, rowEnd: 5 })
-      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 2, column: 'b' })).toBeUndefined()
-      expect(df.getCell({ row: 3, column: 'c' })).toBeUndefined()
-      revoke()
-    })
-
-    it('should break the current parsing and start a new one if the next row is beyond one chunk size', async () => {
-      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n16,17,18\n'
-      const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
-      const df = await csvDataFrame({
-        url,
-        byteLength: fileSize,
-        initialRowCount: 1,
-        chunkSize: 8, // small chunk size to force multiple fetches
-      })
-      expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '1' })
-      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 3, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 4, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 5, column: 'a' })).toBeUndefined()
-      await df.fetch?.({ rowStart: 2, rowEnd: 5 })
-      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '7' })
-      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '10' })
-      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '13' })
-      expect(df.getCell({ row: 5, column: 'a' })).toBeUndefined()
-      await df.fetch?.({ rowStart: 1, rowEnd: 6 })
-      expect(df.getCell({ row: 1, column: 'a' })).toStrictEqual({ value: '4' })
-      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '16' })
-      revoke()
-    })
-
-    it('fetches incorrect rows if the row estimation is incorrect', async () => {
-      const text = 'a,b,c\n111111,222222,333333\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n16,17,18\n19,20,21\n22,23,24\n'
-      const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
-      const df = await csvDataFrame({
-        url,
-        byteLength: fileSize,
-        initialRowCount: 1,
-        chunkSize: 5,
-      })
-      expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '111111' })
-      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 3, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 4, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 5, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
-      // average row size here is 21, because of the first row
-
-      await df.fetch?.({ rowStart: 2, rowEnd: 6 })
-
-      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      // erroneously got row 4 instead of row 2, due to the overestimation of the average row size
-      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '13' })
-      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '16' })
-      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '19' })
-      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '22' })
-      expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
-      revoke()
-    })
-
-    it('does not fetch all the rows, if the row estimation is incorrect', async () => {
-      const text = 'a,b,c\n111111,222222,333333\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n16,17,18\n19,20,21\n22,23,24\n'
-      const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
-      const df = await csvDataFrame({
-        url,
-        byteLength: fileSize,
-        initialRowCount: 1,
-        chunkSize: 5,
-      })
-      expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '111111' })
-      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 3, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 4, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 5, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
-      // average row size here is 21, because of the first row
-
-      await df.fetch?.({ rowStart: 2, rowEnd: 7 })
-
-      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      // erroneously got row 4 instead of row 2, due to the overestimation of the average row size
-      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '13' })
-      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '16' })
-      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '19' })
-      expect(df.getCell({ row: 5, column: 'a' })).toStrictEqual({ value: '22' })
-      // the last row, row 6, was not fetched, even if it was requested
-      expect(df.getCell({ row: 6, column: 'a' })).toBeUndefined()
+      expect(df.getCell({ row: 10, column: 'a' })).toBeUndefined()
+      await df.fetch?.({ rowStart: 10, rowEnd: 11 })
+      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '27' }) // should be 10
+      // fetch again, which refreshes the average row size
+      await df.fetch?.({ rowStart: 10, rowEnd: 11 })
+      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '08' }) // should be 10
+      // fetch again, which refreshes the average row size, but does not fetch more rows
+      await df.fetch?.({ rowStart: 10, rowEnd: 11 })
+      expect(df.getCell({ row: 10, column: 'a' })).toStrictEqual({ value: '08' }) // should be 10
       revoke()
     })
 
@@ -551,46 +459,71 @@ describe('csvDataFrame', () => {
         resolveEventCount++
       })
 
-      await df.fetch?.({ rowStart: 2, rowEnd: 4 })
-      expect(resolveEventCount).toBe(2)
+      await df.fetch?.({ rowStart: 2, rowEnd: 5 })
+      expect(resolveEventCount).toBe(3)
 
       // No event because rows are already resolved
-      await df.fetch?.({ rowStart: 2, rowEnd: 4 })
-      expect(resolveEventCount).toBe(2)
-
-      await df.fetch?.({ rowStart: 2, rowEnd: 6 })
+      await df.fetch?.({ rowStart: 2, rowEnd: 5 })
       expect(resolveEventCount).toBe(3)
 
       revoke()
     })
 
-    it('can parse again the same rows, if the chunk has been fetched but some rows were already cached', async () => {
-      const text = 'a,b,c\n1,2,3\n4,5,6\n7,8,9\n10,11,12\n13,14,15\n'
+    it('does nothing if trying to fetch random rows, and no initial rows are cached', async () => {
+      const text = 'aaaaaaaaaa\n' + Array(100).fill(0).map((_, i) => i.toString().padStart(2, '0')).join('\n')
       const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
       const df = await csvDataFrame({
         url,
         byteLength: fileSize,
-        initialRowCount: 1,
+        // no initial rows! -> no estimate
+        initialRowCount: 0,
         chunkSize: 5,
       })
-      expect(df.getCell({ row: 0, column: 'a' })).toStrictEqual({ value: '1' })
-      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 3, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 4, column: 'a' })).toBeUndefined()
 
-      await df.fetch?.({ rowStart: 3, rowEnd: 4 })
-      expect(df.getCell({ row: 1, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 2, column: 'a' })).toBeUndefined()
-      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '10' })
-      expect(df.getCell({ row: 4, column: 'a' })).toBeUndefined()
+      let resolveEventCount = 0
+      df.eventTarget?.addEventListener('resolve', () => {
+        resolveEventCount++
+      })
 
-      // Fetch again the same chunk
-      await df.fetch?.({ rowStart: 1, rowEnd: 5 })
-      expect(df.getCell({ row: 1, column: 'a' })).toStrictEqual({ value: '4' })
-      expect(df.getCell({ row: 2, column: 'a' })).toStrictEqual({ value: '7' })
-      expect(df.getCell({ row: 3, column: 'a' })).toStrictEqual({ value: '10' })
-      expect(df.getCell({ row: 4, column: 'a' })).toStrictEqual({ value: '13' })
+      // no estimate -> does nothing
+      await df.fetch?.({ rowStart: 30, rowEnd: 31 })
+      expect(resolveEventCount).toBe(0)
+
+      // the first row can always be fetched
+      await df.fetch?.({ rowStart: 0, rowEnd: 5 })
+      // note that only one row has actually been fetched
+      // TODO(SL): be smarter when we fetch from the start
+      expect(resolveEventCount).toBe(1)
+
+      // now, the offset for row 30 can be estimated, and rows can be fetched
+      await df.fetch?.({ rowStart: 30, rowEnd: 31 })
+      expect(resolveEventCount).toBe(8)
+
+      revoke()
+    })
+
+    it('does fetches only what is needed', async () => {
+      const text = 'aa\n' + Array(100).fill(0).map((_, i) => i.toString().padStart(2, '0')).join('\n')
+      const { url, revoke, fileSize } = toBlobURL(text, { withNodeWorkaround: true })
+      const df = await csvDataFrame({
+        url,
+        byteLength: fileSize,
+        initialRowCount: 20,
+        chunkSize: 5,
+      })
+
+      let resolveEventCount = 0
+      df.eventTarget?.addEventListener('resolve', () => {
+        resolveEventCount++
+      })
+
+      // fetch the last rows
+      await df.fetch?.({ rowStart: 80, rowEnd: 100 })
+      expect(resolveEventCount).toBe(22)
+
+      // fetch all the rows: only the missing rows should be fetched
+      await df.fetch?.({ rowStart: 0, rowEnd: 100 })
+      expect(resolveEventCount).toBe(80)
 
       revoke()
     })
