@@ -163,33 +163,28 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
       },
     })
 
-    // Compute the byte range to fetch
-    for (let r = rowStart; r < rowEnd; r++) {
-      if (!estimator.isStored({ row: r })) {
-        break
-      }
-      rowStart++
-    }
-    for (let r = rowEnd; r > rowStart; r--) {
-      if (!estimator.isStored({ row: r - 1 })) {
-        break
-      }
-      rowEnd--
-    }
-    if (rowEnd <= rowStart) {
-      // all rows are already cached
-      return
-    }
-
     // fetch rows from rowStart to rowEnd (exclusive), with 3 extra rows before and after
     const extraRows = 3
     const fetchRowStart = Math.max(0, rowStart - extraRows)
     const fetchRowEnd = Math.min(rowEnd + extraRows)
-    const numRowsToFetch = fetchRowEnd - fetchRowStart
 
-    const firstByte = estimator.guessByteOffset({ row: fetchRowStart })
-    if (firstByte === undefined) {
-      // cannot estimate
+    const firstMissingRow = estimator.getFirstMissingRow({ minRow: fetchRowStart })
+    const lastMissingRowNumber = estimator.getLastMissingRowNumber({ maxRow: fetchRowEnd - 1 })
+    const lastMissingRow = (lastMissingRowNumber ?? (fetchRowEnd - 1)) + 1 // make it exclusive
+
+    if (firstMissingRow === undefined) {
+      // could not estimate the initial byte offset
+      return
+    }
+    // Prepare the parsing options
+    const firstByte = firstMissingRow.byteOffset.value
+    // if lastMissingRowNumber is undefined, we use fetchRowEnd as the fallback (see line 173)
+    const numRowsToFetch = lastMissingRow - firstMissingRow.row
+    const initialState = firstMissingRow.byteOffset.isEstimate ? 'detect' : 'default'
+    const ignoreFirstRow = firstMissingRow.byteOffset.isEstimate
+
+    if (numRowsToFetch <= 0) {
+      // nothing to fetch
       return
     }
 
@@ -210,13 +205,14 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
         chunkSize,
         firstByte,
         lastByte: byteLength - 1,
-        initialState: 'detect',
+        initialState,
       })) {
         stats.parsedRows++
+
         // Check if the signal has been aborted
         checkSignal(signal)
 
-        if (stats.parsedRows <= 1) {
+        if (stats.parsedRows <= 1 && ignoreFirstRow) {
           // we might have started parsing in the middle of a row, ignore this first row
           stats.ignored += 1
           continue
