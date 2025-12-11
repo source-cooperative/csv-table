@@ -41,3 +41,15 @@ export function checkNonNegativeInteger(value: number): number {
   }
   return value
 }
+
+/**
+ * Throws if the provided value is not an integer.
+ * @param value The desired value.
+ * @returns The validated value: an integer.
+ */
+export function checkInteger(value: number): number {
+  if (!Number.isInteger(value)) {
+    throw new Error('Value is not an integer')
+  }
+  return value
+}
