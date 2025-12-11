@@ -503,7 +503,7 @@ export class Estimator {
     }
   }
 
-  // TODO(SL): look at the ranges to improve the estimation, in particular to avoid gaps between sucessive rows
+  // TODO(SL): look at the ranges to improve the estimation, in particular to avoid gaps between successive rows
   // TODO(SL): also tell if it's a guess or exact
   guessByteOffset({ row }: { row: number }): number | undefined {
     // special case: even if averageRowByteCount is undefined or 0, we know the byte offset of row 0
