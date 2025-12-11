@@ -185,13 +185,17 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
     const extraRows = 3
     const fetchRowStart = Math.max(0, rowStart - extraRows)
     const fetchRowEnd = Math.min(rowEnd + extraRows)
-    const numRowsToFetch = fetchRowEnd - fetchRowStart
 
-    const firstByte = estimator.guessByteOffset({ row: fetchRowStart })
-    if (firstByte === undefined) {
+    const nextMissingRow = estimator.guessFirstMissingRow({ row: fetchRowStart })
+    if (nextMissingRow === undefined) {
       // cannot estimate
       return
     }
+    // Prepare the parsing options
+    const firstByte = nextMissingRow.byteOffset
+    const numRowsToFetch = fetchRowEnd - nextMissingRow.row
+    const initialState = nextMissingRow.isEstimate ? 'detect' : 'default'
+    const ignoreFirstRow = nextMissingRow.isEstimate ? true : false
 
     const stats = {
       parsedRows: 0,
@@ -210,13 +214,14 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
         chunkSize,
         firstByte,
         lastByte: byteLength - 1,
-        initialState: 'detect',
+        initialState,
       })) {
         stats.parsedRows++
+
         // Check if the signal has been aborted
         checkSignal(signal)
 
-        if (stats.parsedRows <= 1) {
+        if (stats.parsedRows <= 1 && ignoreFirstRow) {
           // we might have started parsing in the middle of a row, ignore this first row
           stats.ignored += 1
           continue

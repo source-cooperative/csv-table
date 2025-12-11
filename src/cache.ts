@@ -502,19 +502,43 @@ export class Estimator {
     }
   }
 
-  guessByteOffset({ row }: { row: number }): number | undefined {
-    // special case: even if averageRowByteCount is undefined or 0, we know the byte offset of row 0
-    if (row === 0) {
-      return this.#cache.headerByteCount
+  /**
+   * Guess the next missing row
+   * @param options Options
+   * @param options.row The row number (0-based)
+   * @returns An object defining the next missing row, with the byte offset,
+   * the row number, and if the offset is estimated.
+   * Returns undefined if the row is already cached or if no estimation is possible.
+   */
+  guessFirstMissingRow({ row }: { row: number }): {
+    byteOffset: number
+    row: number
+    isEstimate: boolean
+  } | undefined {
+    if (row <= this.#cache.serialRange.rowsCache.numRows) {
+      return {
+        byteOffset: this.#cache.serialRange.nextByte,
+        row: this.#cache.serialRange.rowsCache.numRows,
+        isEstimate: false,
+      }
     }
-    if (this.#averageRowByteCount === 0 || this.#averageRowByteCount === undefined) {
+    if (this.#averageRowByteCount === undefined) {
+      // the cache is complete, no need to fetch
       return undefined
     }
-    return Math.max(0,
-      Math.min(this.#cache.byteLength - 1,
-        this.#cache.headerByteCount + Math.round(row * this.#averageRowByteCount),
+    if (this.#averageRowByteCount === 0) {
+      // no estimation available (empty cache, and asking for a row at the middle of the file)
+      return undefined
+    }
+    return {
+      byteOffset: Math.max(0,
+        Math.min(this.#cache.byteLength - 1,
+          this.#cache.headerByteCount + Math.round(row * this.#averageRowByteCount),
+        ),
       ),
-    )
+      row,
+      isEstimate: true,
+    }
   }
 
   /**
