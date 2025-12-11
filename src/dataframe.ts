@@ -263,7 +263,6 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
       }
     }
     finally {
-      console.debug('Fetch stats: ', stats)
       // Note: we don't update the estimates after the fetch, to avoid unstability during user interactions.
       // Exception if the cache is now complete.
       if (cache.complete) {

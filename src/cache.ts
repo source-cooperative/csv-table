@@ -573,7 +573,7 @@ export class Estimator {
     }
     // find the range containing this row
     for (const range of this.#cache.randomRanges) {
-      const estimatedFirstRow = this.#guessRowNumber({ byteOffset: range.firstByte })
+      const estimatedFirstRow = this.#guessRowNumberInRandomRange({ byteOffset: range.firstByte })
       if (estimatedFirstRow === undefined) {
         return undefined
       }
@@ -589,8 +589,14 @@ export class Estimator {
   // TODO(SL): also tell if it's a guess or exact
   // TODO(SL): if the row is the last random range, and it reaches the end of the file, adjust the firstRow accordingly so that
   // the last row is numRows - 1
-  #guessRowNumber({ byteOffset }: { byteOffset: number }): number | undefined {
-    if (this.#averageRowByteCount === 0 || this.#averageRowByteCount === undefined) {
+  #guessRowNumberInRandomRange({ byteOffset }: { byteOffset: number }): number | undefined {
+    // v8 ignore if -- @preserve
+    if (this.#averageRowByteCount === undefined) {
+      // if the cache is complete, there is no random range, so this should not happen
+      throw new Error('Incoherent state: cannot guess row number in random range when the cache is complete')
+    }
+    if (this.#averageRowByteCount === 0) {
+      // no estimation available
       return undefined
     }
     return Math.max(Math.round((byteOffset - this.#cache.headerByteCount) / this.#averageRowByteCount), 0)
