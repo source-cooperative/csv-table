@@ -263,7 +263,7 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
       }
     }
     finally {
-      // Note: we don't update the estimates after the fetch, to avoid unstability during user interactions.
+      // Note: we don't update the estimates after the fetch, to avoid instability during user interactions.
       // Exception if the cache is now complete, or we reached the end of the file.
       if (cache.complete || stats.reachedEOF === true) {
         estimator.refresh()
