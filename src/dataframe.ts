@@ -251,7 +251,7 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
           stats.newFull++
         }
 
-        if (result.meta.byteOffset > byteLength - 1) {
+        if (result.meta.byteOffset + result.meta.byteCount >= byteLength) {
           // end of file
           stats.reachedEOF = true
         }
