@@ -498,7 +498,7 @@ describe('csvDataFrame', () => {
 
       // now, the offset for row 30 can be estimated, and rows can be fetched
       await df.fetch?.({ rowStart: 30, rowEnd: 31 })
-      expect(resolveEventCount).toBe(15)
+      expect(resolveEventCount).toBe(14)
 
       revoke()
     })

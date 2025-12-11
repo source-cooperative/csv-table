@@ -458,17 +458,6 @@ export class Estimator {
   }
 
   /**
-   * Get the cells of a given row
-   * @param options Options
-   * @param options.row  The row number (0-based)
-   * @returns The cells of the row, or undefined if the row is not in this range
-   */
-  isStored({ row }: { row: number }): boolean {
-    const cells = this.#getCells({ row })
-    return cells !== undefined
-  }
-
-  /**
    * Get the cell value at the given row and column
    * @param options Options
    * @param options.row The row index (0-based)
@@ -503,40 +492,86 @@ export class Estimator {
   }
 
   /**
-   * Guess the next missing row
+   * Guess the next missing row, searching from minRow
    * @param options Options
-   * @param options.row The row number (0-based)
-   * @returns An object defining the next missing row, with the byte offset,
+   * @param options.minRow The minimum row number (0-based)
+   * @returns An object defining the first missing row, with the byte offset,
    * the row number, and if the offset is estimated.
-   * Returns undefined if the row is already cached or if no estimation is possible.
+   * Returns undefined if all the rows from minRow are already cached,
+   * or if no estimation is possible.
    */
-  guessFirstMissingRow({ row }: { row: number }): {
+  guessFirstMissingRow({ minRow }: { minRow: number }): {
     byteOffset: number
     row: number
     isEstimate: boolean
   } | undefined {
-    if (row <= this.#cache.serialRange.rowsCache.numRows) {
+    if (this.#averageRowByteCount === undefined) {
+      // the cache is complete, no need to fetch
+      return undefined
+    }
+    if (minRow <= this.#cache.serialRange.rowsCache.numRows) {
       return {
         byteOffset: this.#cache.serialRange.nextByte,
         row: this.#cache.serialRange.rowsCache.numRows,
         isEstimate: false,
       }
     }
+    if (this.#averageRowByteCount === 0) {
+      // no estimation available (empty cache, and asking for a row at the middle of the file)
+      return undefined
+    }
+    // TODO(SL): improve estimation by checking the random ranges, and returning undefined if all the rows until the end of the file are cached
+    return {
+      byteOffset: Math.max(0,
+        Math.min(this.#cache.byteLength - 1,
+          this.#cache.headerByteCount + Math.round(minRow * this.#averageRowByteCount),
+        ),
+      ),
+      row: minRow,
+      isEstimate: true,
+    }
+  }
+
+  /**
+   * Guess the last missing row, searching backwards from maxRow
+   * @param options Options
+   * @param options.maxRow The maximum row number (0-based)
+   * @returns An object defining the last missing row, with the byte offset,
+   * the row number, and if the offset is estimated.
+   * Returns undefined if all the rows before maxRow are already cached,
+   * or if no estimation is possible.
+   */
+  guessLastMissingRow({ maxRow }: { maxRow: number }): {
+    byteOffset: number
+    row: number
+    isEstimate: boolean
+  } | undefined {
     if (this.#averageRowByteCount === undefined) {
       // the cache is complete, no need to fetch
       return undefined
+    }
+    if (maxRow < this.#cache.serialRange.rowsCache.numRows) {
+      return undefined
+    }
+    if (maxRow === this.#cache.serialRange.rowsCache.numRows) {
+      return {
+        byteOffset: this.#cache.serialRange.nextByte,
+        row: this.#cache.serialRange.rowsCache.numRows,
+        isEstimate: false,
+      }
     }
     if (this.#averageRowByteCount === 0) {
       // no estimation available (empty cache, and asking for a row at the middle of the file)
       return undefined
     }
+    // TODO(SL): improve estimation by checking the random ranges, and returning undefined if all the rows until the end of the file are cached
     return {
       byteOffset: Math.max(0,
         Math.min(this.#cache.byteLength - 1,
-          this.#cache.headerByteCount + Math.round(row * this.#averageRowByteCount),
+          this.#cache.headerByteCount + Math.round(maxRow * this.#averageRowByteCount),
         ),
       ),
-      row,
+      row: maxRow,
       isEstimate: true,
     }
   }
@@ -602,7 +637,11 @@ export class Estimator {
       // due to a bug in cosovo?, the last byte of https://huggingface.co/datasets/Mosab-Rezaei/19th-century-novelists/resolve/main/Dataset - Five Authors .csv
       // is not counted. To make the demo work, we allow a 1-byte buffer for the last range.
       const hotfixBuffer = 1
-      const estimatedFirstRow = (i === 0 && range.nextByte >= this.#cache.byteLength - hotfixBuffer && range.rowsCache.numRows > 0)
+      const estimatedFirstRow = (
+        i === 0
+        && range.nextByte >= this.#cache.byteLength - hotfixBuffer
+        && range.rowsCache.numRows > 0
+      )
         // special case: last range, and the last stored row is the last row of the file
         ? this.numRows - range.rowsCache.numRows
         // normal case: estimate based on the byte offset

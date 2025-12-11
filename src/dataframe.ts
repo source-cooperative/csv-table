@@ -163,39 +163,27 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
       },
     })
 
-    // Compute the byte range to fetch
-    for (let r = rowStart; r < rowEnd; r++) {
-      if (!estimator.isStored({ row: r })) {
-        break
-      }
-      rowStart++
-    }
-    for (let r = rowEnd; r > rowStart; r--) {
-      if (!estimator.isStored({ row: r - 1 })) {
-        break
-      }
-      rowEnd--
-    }
-    if (rowEnd <= rowStart) {
-      // all rows are already cached
-      return
-    }
-
     // fetch rows from rowStart to rowEnd (exclusive), with 3 extra rows before and after
     const extraRows = 3
     const fetchRowStart = Math.max(0, rowStart - extraRows)
     const fetchRowEnd = Math.min(rowEnd + extraRows)
 
-    const nextMissingRow = estimator.guessFirstMissingRow({ row: fetchRowStart })
-    if (nextMissingRow === undefined) {
-      // cannot estimate
+    const firstMissingRow = estimator.guessFirstMissingRow({ minRow: fetchRowStart })
+    const lastMissingRow = estimator.guessLastMissingRow({ maxRow: fetchRowEnd - 1 })
+
+    if (
+      firstMissingRow === undefined
+      || (lastMissingRow !== undefined && firstMissingRow.row > lastMissingRow.row)
+    ) {
+      // cannot estimate, or no missing rows in the requested range
       return
     }
     // Prepare the parsing options
-    const firstByte = nextMissingRow.byteOffset
-    const numRowsToFetch = fetchRowEnd - nextMissingRow.row
-    const initialState = nextMissingRow.isEstimate ? 'detect' : 'default'
-    const ignoreFirstRow = nextMissingRow.isEstimate ? true : false
+    const firstByte = firstMissingRow.byteOffset
+    // if lastMissingRow is undefined, we fetch until fetchRowEnd
+    const numRowsToFetch = (lastMissingRow?.row ?? fetchRowEnd) - firstMissingRow.row
+    const initialState = firstMissingRow.isEstimate ? 'detect' : 'default'
+    const ignoreFirstRow = firstMissingRow.isEstimate ? true : false
 
     const stats = {
       parsedRows: 0,
