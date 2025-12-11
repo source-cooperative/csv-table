@@ -550,7 +550,9 @@ export class Estimator {
 
     if (
       this.#averageRowByteCount === 0
-      || Math.abs(averageRowByteCount - this.#averageRowByteCount) / this.#averageRowByteCount > 0.05
+      // TODO(SL): instead of a fixed threshold, use a dynamic one based on the number of cached rows?
+      // or on the variance of the row byte counts?
+      || Math.abs(averageRowByteCount - this.#averageRowByteCount) / this.#averageRowByteCount > 0.01
     ) {
       this.#averageRowByteCount = averageRowByteCount
       return true
@@ -572,8 +574,16 @@ export class Estimator {
       return cells
     }
     // find the range containing this row
-    for (const range of this.#cache.randomRanges) {
-      const estimatedFirstRow = this.#guessRowNumberInRandomRange({ byteOffset: range.firstByte })
+    // try the last range first
+    for (const [i, range] of this.#cache.randomRanges.reverse().entries()) {
+      // due to a bug in cosovo?, the last byte of https://huggingface.co/datasets/Mosab-Rezaei/19th-century-novelists/resolve/main/Dataset - Five Authors .csv
+      // is not counted. To make the demo work, we allow a 1-byte buffer for the last range.
+      const hotfixBuffer = 1
+      const estimatedFirstRow = (i === 0 && range.nextByte >= this.#cache.byteLength - hotfixBuffer && range.rowsCache.numRows > 0)
+        // special case: last range, and the last stored row is the last row of the file
+        ? this.numRows - range.rowsCache.numRows
+        // normal case: estimate based on the byte offset
+        : this.#guessRowNumberInRandomRange({ byteOffset: range.firstByte })
       if (estimatedFirstRow === undefined) {
         return undefined
       }
@@ -586,9 +596,6 @@ export class Estimator {
   }
 
   // TODO(SL): look at the ranges to improve the estimation, in particular to avoid gaps between sucessive rows
-  // TODO(SL): also tell if it's a guess or exact
-  // TODO(SL): if the row is the last random range, and it reaches the end of the file, adjust the firstRow accordingly so that
-  // the last row is numRows - 1
   #guessRowNumberInRandomRange({ byteOffset }: { byteOffset: number }): number | undefined {
     // v8 ignore if -- @preserve
     if (this.#averageRowByteCount === undefined) {
@@ -599,6 +606,7 @@ export class Estimator {
       // no estimation available
       return undefined
     }
+    // estimation based on the average row byte count
     return Math.max(Math.round((byteOffset - this.#cache.headerByteCount) / this.#averageRowByteCount), 0)
   }
 

@@ -202,6 +202,7 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
       newEmpty: 0,
       newFull: 0,
       ignored: 0,
+      reachedEOF: false,
     }
 
     try {
@@ -229,7 +230,6 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
           // no progress, avoid infinite loop
           // it's the last line in the file and it's empty
           stats.ignored += 1
-          // next = undefined
           break
         }
 
@@ -254,18 +254,21 @@ export async function csvDataFrame(params: Params): Promise<CSVDataFrame> {
           stats.newFull++
         }
 
+        if (result.meta.byteOffset > byteLength - 1) {
+          // end of file
+          stats.reachedEOF = true
+        }
         if (result.meta.byteOffset > lastByte) {
           // end of the requested range
           stats.ignored += 1
-          // next = undefined
           break
         }
       }
     }
     finally {
       // Note: we don't update the estimates after the fetch, to avoid unstability during user interactions.
-      // Exception if the cache is now complete.
-      if (cache.complete) {
+      // Exception if the cache is now complete, or we reached the end of the file.
+      if (cache.complete || stats.reachedEOF === true) {
         estimator.refresh()
         eventTarget.dispatchEvent(new CustomEvent('numrowschange'))
       }
