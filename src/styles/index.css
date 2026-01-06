@@ -27,20 +27,6 @@ h2 {
 p {
   margin: 15px 0;
 }
-code {
-  font-family: var(--code-font-family);
-  padding: 10px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-sub {
-  align-items: center;
-  display: flex;
-  gap: 5px;
-}
-sub img {
-  cursor: pointer;
-}
 
 /* dropzone */
 .dropzone {
@@ -53,7 +39,8 @@ sub img {
 }
 .overlay {
   font-size: 125%;
-  position: fixed;
+  justify-content: center;
+  position: absolute;
   top: 0;
   bottom: 0;
   right: 0;
@@ -75,12 +62,19 @@ sub img {
   width: 100%;
 }
 
+/* file upload */
+input[type="file"] {
+  display: none;
+}
+
 /* content area */
 main {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  color: var(--gray-12);
+  background: var(--gray-1);
 }
 
 #app {
@@ -107,8 +101,7 @@ main {
 
 .top-header {
   align-items: center;
-  border-bottom: 1px solid #ddd;
-  background: #eee;
+  border-bottom: 1px solid var(--gray-5);
   display: flex;
   font-family: var(--code-font-family);
   font-size: 16px;
@@ -123,8 +116,7 @@ main {
 
 .view-header {
   align-items: center;
-  background-color: #f2f2f2;
-  color: #444;
+  color: var(--gray-11);
   display: flex;
   gap: 16px;
   height: 24px;
@@ -132,13 +124,6 @@ main {
   /* all one line */
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.viewer {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  white-space: pre-wrap;
-  overflow-y: auto;
 }
 
 /* welcome */
@@ -176,7 +161,6 @@ main {
   display: flex;
   min-width: 0;
   border: 1px solid var(--gray-5);
-  background: var(--gray-1);
 
   a {
     text-decoration: none;
@@ -185,78 +169,17 @@ main {
     }
   }
   &:hover {
-    border-color: var(--accent-8);
+    border-color: var(--gray-12);
   }
 }
 .quick-links a {
-  color: var(--accent-11);
+  color: var(--gray-12);
   overflow: hidden;
   padding: 12px;
   padding-left: 36px;
   text-overflow: ellipsis;
   white-space: nowrap;
   width: 100%;
-}
-
-/* file upload */
-input[type="file"] {
-  display: none;
-}
-.overlay {
-  font-size: 125%;
-  justify-content: center;
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  left: 0;
-  background-color: rgba(240, 240, 240, 0.6);
-  backdrop-filter: blur(4px);
-  display: none;
-  padding: 12px;
-  z-index: 40;
-}
-.over .overlay {
-  display: flex;
-}
-
-/* layout */
-.layout {
-  margin: 10px;
-  max-width: 480px;
-}
-.layout .group,
-.layout .cell {
-  background-color: rgba(100, 100, 100, 0.05);
-  border: 1px solid #ccc;
-  font-size: 12px;
-  padding: 4px 20px;
-  margin-top: 8px;
-  word-break: break-all;
-}
-.cell,
-.group-header {
-  display: flex;
-}
-.group-header > label,
-.cell > label {
-  display: flex;
-  flex: 1;
-  font-size: 12px;
-  font-weight: normal;
-  justify-content: flex-start;
-}
-.group-header > span {
-  font-size: 10px;
-}
-
-.layout div ul {
-  list-style: none;
-}
-.layout div li {
-  font-size: 10px;
-  padding: 2px 4px;
-  text-align: right;
 }
 
 .loading {
@@ -269,9 +192,3 @@ input[type="file"] {
 .loading::after {
   content: "Loading…";
 }
-
-.json {
-  background-color: #22222b;
-  padding-left: 20px;
-}
-
