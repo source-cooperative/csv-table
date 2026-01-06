@@ -1,23 +1,71 @@
 /* Theme for hightable */
 .hightable {
-  --hy-color-1: var(--black);
-  --hy-color-2: var(--gray-12);
-  --hy-color-3: var(--gray-11);
-  --hy-color-5: var(--gray-10);
-  --hy-color-7: var(--gray-9);
-  --hy-color-8: var(--gray-7);
-  --hy-color-9: var(--gray-2);
-  --hy-color-10: var(--gray-1);
+  /* texts */
+  --header-color: var(--gray-12);
+  --menu-color: var(--gray-12);
+  --menu-item-color: var(--gray-12);
+  --menu-button-color: var(--gray-12);
+  --text-color: var(--gray-12);
+  --primary-sort-icon-color: inherit;
 
-  --hy-accent-1: var(--gray-12);
-  --hy-accent-2: var(--gray-11);
-  --hy-accent-3: var(--gray-8);
-  --hy-accent-4: var(--gray-4);
-  --hy-accent-5: var(--gray-3);
-  
-  --hy-highlight-1: var(--gray-3);
-  --hy-highlight-2: var(--gray-2);
-  
+  --row-number-color: var(--gray-a11);
+
+  --secondary-sort-icon-color: var(--gray-5);
+
+  /* backgrounds */
+  --background-color: var(--white);
+  --menu-item-background-color: var(--white);
+
+  --header-background-color: var(--gray-2);
+  --focusable-background-color: var(--gray-2);
+  --menu-button-hovered-background-color: var(--gray-2);
+  --menu-button-focused-background-color: var(--gray-2);
+  --row-hovered-background-color: var(--gray-2);
+
+  --menu-background-color: var(--gray-2);
+  --menu-button-background-color: var(--gray-2);
+  --menu-item-hovered-background-color: var(--gray-2);
+  --row-number-background-color: var(--gray-2);
+  --corner-cell-background-color: var(--gray-2);
+  --row-selected-background-color: var(--gray-2);
+
+  --focus-background-color: var(--gray-3);
+  --row-number-hovered-background-color: var(--gray-3);
+  --row-number-selected-background-color: var(--gray-3);
+
+  --resize-indicator-background-color: var(--gray-12);
+
+  /* borders */
+  --cell-border-color: var(--gray-5);
+  --cell-hovered-right-border-color: var(--gray-5);
+  --header-bottom-border-color: var(--gray-5);
+  --menu-border-color: var(--gray-5);
+  --menu-inner-border-color: var(--gray-5);
+  --row-number-hovered-right-border-color: var(--gray-5);
+  --corner-cell-right-border-color: var(--gray-5);
+  --row-number-right-border-color : var(--gray-5);
+
+  --top-border-color: var(--gray-12);
+  --focus-border-color: var(--gray-12);
+  --focusable-border-color: var(--gray-12);
+  --resizer-hovered-right-border-color: var(--gray-12);
+
+  --top-border-height: 1px;
+  --focus-border-width: 1px;
+
+  /* other tweaks */
+  thead {
+    th {
+      border-bottom-width: 1px;
+      [role="spinbutton"]:focus, [role="spinbutton"]:hover {
+        margin: 0;
+      }
+    }
+    td:first-child {
+      box-shadow: none;
+    }
+  }
+
   tbody {
     [role="rowheader"] {
       text-align: right;
