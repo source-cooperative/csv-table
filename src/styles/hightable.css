@@ -43,9 +43,9 @@
   --menu-inner-border-color: var(--gray-5);
   --row-number-hovered-right-border-color: var(--gray-5);
   --corner-cell-right-border-color: var(--gray-5);
-  --row-number-right-border-color : var(--gray-5);
+  --row-number-right-border-color: var(--gray-5);
+  --top-border-color: var(--gray-5);
 
-  --top-border-color: var(--gray-12);
   --focus-border-color: var(--gray-12);
   --focusable-border-color: var(--gray-12);
   --resizer-hovered-right-border-color: var(--gray-12);
@@ -57,7 +57,8 @@
   thead {
     th {
       border-bottom-width: 1px;
-      [role="spinbutton"]:focus, [role="spinbutton"]:hover {
+      [role="spinbutton"]:focus,
+      [role="spinbutton"]:hover {
         margin: 0;
       }
     }
@@ -75,6 +76,14 @@
     }
     [role="cell"] {
       font-family: var(--code-font-family);
+    }
+  }
+
+  /* fix bug in hightable CSS */
+  thead td:first-child,
+  tbody [role="rowheader"] {
+    &:focus {
+      background-color: var(--focus-background-color);
     }
   }
 }
