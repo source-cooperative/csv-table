@@ -13,7 +13,7 @@
   --secondary-sort-icon-color: var(--gray-5);
 
   /* backgrounds */
-  --background-color: var(--white);
+  --background-color: unset;
   --menu-item-background-color: var(--white);
 
   --header-background-color: var(--gray-2);
