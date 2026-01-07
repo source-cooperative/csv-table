@@ -21,7 +21,8 @@
   :root {
     --black: #ffffff;
     --gray-1: #111111;
-    --white: var(--gray-1);/* #000000; */
+    /* In source.coop, white, in dark mode, is not black (#000000), but a very dark gray */
+    --white: var(--gray-1);
     --gray-2: #191919;
     --gray-3: #222222;
     --gray-4: #2a2a2a;
