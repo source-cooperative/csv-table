@@ -1,37 +1,37 @@
 /* Theme for hightable */
 .hightable {
   /* texts */
-  --header-color: var(--gray-12);
   --menu-color: var(--gray-12);
   --menu-item-color: var(--gray-12);
   --menu-button-color: var(--gray-12);
-  --text-color: var(--gray-12);
   --primary-sort-icon-color: inherit;
+  --header-color: var(--gray-12);
 
   --row-number-color: var(--gray-a11);
+  --text-color: var(--gray-a11);
 
   --secondary-sort-icon-color: var(--gray-5);
 
   /* backgrounds */
-  --background-color: var(--white);
-  --menu-item-background-color: var(--white);
+  --background-color: var(--accent-2);
+  --menu-item-background-color: var(--accent-2);
 
-  --header-background-color: var(--gray-2);
-  --focusable-background-color: var(--gray-2);
-  --menu-button-hovered-background-color: var(--gray-2);
-  --menu-button-focused-background-color: var(--gray-2);
-  --row-hovered-background-color: var(--gray-2);
+  --header-background-color: var(--gray-3);
+  --focusable-background-color: var(--gray-3);
+  --menu-button-hovered-background-color: var(--gray-3);
+  --menu-button-focused-background-color: var(--gray-3);
+  --row-hovered-background-color: var(--gray-3);
 
-  --menu-background-color: var(--gray-2);
-  --menu-button-background-color: var(--gray-2);
-  --menu-item-hovered-background-color: var(--gray-2);
-  --row-number-background-color: var(--gray-2);
-  --corner-cell-background-color: var(--gray-2);
-  --row-selected-background-color: var(--gray-2);
+  --menu-background-color: var(--gray-3);
+  --menu-button-background-color: var(--gray-3);
+  --menu-item-hovered-background-color: var(--gray-3);
+  --row-number-background-color: var(--gray-3);
+  --corner-cell-background-color: var(--gray-3);
+  --row-selected-background-color: var(--gray-3);
 
-  --focus-background-color: var(--gray-3);
-  --row-number-hovered-background-color: var(--gray-3);
-  --row-number-selected-background-color: var(--gray-3);
+  --focus-background-color: var(--gray-5);
+  --row-number-hovered-background-color: var(--gray-5);
+  --row-number-selected-background-color: var(--gray-5);
 
   --resize-indicator-background-color: var(--gray-12);
 
@@ -54,8 +54,13 @@
   --focus-border-width: 1px;
 
   /* other tweaks */
+  th,
+  td {
+    font-family: var(--code-font-family);
+  }
   thead {
     th {
+      font-weight: normal;
       border-bottom-width: 1px;
       [role="spinbutton"]:focus,
       [role="spinbutton"]:hover {
@@ -71,11 +76,6 @@
     [role="rowheader"] {
       text-align: right;
       padding-right: 0.5em;
-      font-size: 0.75em;
-      font-family: var(--code-font-family);
-    }
-    [role="cell"] {
-      font-family: var(--code-font-family);
     }
   }
 
