@@ -16,13 +16,14 @@
   --gray-12: #202020;
 
   --gray-a11: #0000009b;
+
+  --accent-2: #ffffff;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --black: #ffffff;
+    --white: #000000;
     --gray-1: #111111;
-    /* In source.coop, white, in dark mode, is not black (#000000), but a very dark gray */
-    --white: var(--gray-1);
     --gray-2: #191919;
     --gray-3: #222222;
     --gray-4: #2a2a2a;
@@ -36,5 +37,7 @@
     --gray-12: #eeeeee;
 
     --gray-a11: #ffffffaf;
+
+    --accent-2: #191919;
   }
 }
