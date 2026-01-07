@@ -54,7 +54,8 @@
   --focus-border-width: 1px;
 
   /* other tweaks */
-  table * {
+  th,
+  td {
     font-family: var(--code-font-family);
   }
   thead {
